@@ -65,6 +65,13 @@ const OUTPUT_SCHEMA: SchemaNode = {
         entries: { type: 'integer', required: true },
       },
     },
+    byExtension: {
+      type: 'object',
+      required: true,
+      additionalProperties: true,
+      properties: {},
+      description: 'File counts keyed by lower-case extension (md, pdf, png, ...).',
+    },
     python: {
       type: 'object',
       additionalProperties: false,

@@ -11,7 +11,7 @@ export interface QueryFs {
 export interface QueryHit {
   readonly path: string;
   readonly page: number;
-  readonly section: string | undefined;
+  readonly section?: string;
   readonly score: number;
   readonly excerpt: string;
 }
@@ -73,13 +73,13 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8): Promis
   const index = createBm25(documents);
   const hits: QueryHit[] = index.search(queryText, topK).map((hit) => {
     const stored = chunksById.get(hit.id);
-    return {
+    const base: QueryHit = {
       path: stored?.path ?? '',
       page: stored?.chunk.page ?? 0,
-      section: stored?.chunk.section,
       score: Number(hit.score.toFixed(3)),
       excerpt: (stored?.chunk.text ?? '').slice(0, EXCERPT_LENGTH),
     };
+    return stored?.chunk.section === undefined ? base : { ...base, section: stored.chunk.section };
   });
   return { ok: true, vaultRoot: fs.root, query: queryText, hits, searched: { sources, chunks: documents.length }, elapsedMs: Date.now() - started };
 }

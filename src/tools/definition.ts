@@ -102,8 +102,29 @@ export function toRegisteredTool<Args, Value>(definition: ToolDefinition<Args, V
     description: definition.description,
     parameters: toRawParameters(definition.parameters),
     output: { schema: toRawSchema(definition.output.schema), render: definition.output.render },
-    execute: definition.execute,
+    execute: async (args: Args, exec: ToolExecution) => toLosslessJson(await definition.execute(args, exec)),
   };
+}
+
+/**
+ * The host rejects a result that does not survive a JSON round-trip ("value is not
+ * lossless JSON"). An own property holding `undefined` is the usual cause: JSON drops
+ * the key, so the round-trip is no longer deep-equal. Optional fields are therefore
+ * omitted rather than set to undefined, and undefined array slots become null.
+ */
+export function toLosslessJson<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => (item === undefined ? null : toLosslessJson(item))) as unknown as T;
+  }
+  if (value !== null && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (item === undefined) continue;
+      out[key] = toLosslessJson(item);
+    }
+    return out as T;
+  }
+  return value;
 }
 
 export interface ToolRegisterTarget {
