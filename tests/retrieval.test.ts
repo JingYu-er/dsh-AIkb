@@ -28,6 +28,27 @@ test('chunks never cross a page and carry a section title', () => {
   for (const chunk of chunks) assert.ok(chunk.tokens <= 90, 'chunk too large: ' + chunk.tokens);
 });
 
+test('documentWeight scopes a query to the book it names', () => {
+  const index = createBm25(
+    [
+      { id: 'other', text: '电压转换 振荡器 电压转换 振荡器' },
+      { id: 'named', text: '电压转换 振荡器' },
+    ],
+    { documentWeight: (document) => (document.id === 'named' ? 2.5 : 1) },
+  );
+  assert.equal(index.search('电压转换 振荡器')[0]?.id, 'named');
+});
+
+test('coverage is weighted by IDF so a rare device name can carry the match', () => {
+  const index = createBm25([
+    { id: 'common', text: '失调电压 失调电压 失调电压 温漂 运放' },
+    { id: 'rare', text: 'ada4505 失调电压 3 mV maximum' },
+  ]);
+  // 'ada4505' appears in exactly one document, so matching it is worth more than matching 失调电压.
+  const hits = index.search('ada4505 失调电压 最大是多少');
+  assert.equal(hits[0]?.id, 'rare');
+});
+
 test('bm25 ranks the matching page first', () => {
   const index = createBm25([
     { id: 'a', text: '镜像电流源 参考电流 匹配晶体管' },

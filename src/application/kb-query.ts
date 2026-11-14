@@ -1,6 +1,7 @@
 import { createBm25 } from '../domain/bm25.js';
 import type { Bm25Document } from '../domain/bm25.js';
 import { expandQuery } from '../domain/glossary.js';
+import { tokenize } from '../domain/text.js';
 import { chunkFileOf, INDEX_CATALOG_PATH } from './kb-ingest.js';
 
 export interface QueryFs {
@@ -47,8 +48,9 @@ const EXCERPT_LENGTH = 240;
 function documentTextOf(path: string, chunk: StoredChunk): string {
   const book = (path.split('/').pop() ?? '').replace(/\.pdf$/i, '');
   const section = chunk.section ?? '';
-  // The heading is repeated so a chapter title can outrank a passing mention deeper in another chapter.
-  return [book, section, section, chunk.text].filter((part) => part !== '').join(' ');
+  // Book name and heading are repeated so a named device or a chapter title can outrank a
+  // passing mention of the same words deep inside another book.
+  return [book, book, section, section, chunk.text].filter((part) => part !== '').join(' ');
 }
 
 export function emptyQueryReport(vaultRoot: string, queryText: string, error: unknown): QueryReport {
@@ -79,7 +81,17 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8): Promis
       chunksById.set(chunk.id, { chunk, path: source.path });
     }
   }
-  const index = createBm25(documents);
+  // A user who names a device ("ADA4505", "MG996R") means that datasheet; those tokens also sit
+  // in the book file name, so any document whose book carries one of them is scored higher.
+  const queryTokens = tokenize(queryText);
+  const namedEntities = queryTokens.filter((token) => /[0-9]/.test(token) && token.length >= 4);
+  const documentWeight = (document: Bm25Document): number => {
+    if (namedEntities.length === 0) return 1;
+    const book = chunksById.get(document.id)?.path.split('/').pop() ?? '';
+    const bookTokens = new Set(tokenize(book));
+    return namedEntities.some((token) => bookTokens.has(token)) ? 2.5 : 1;
+  };
+  const index = createBm25(documents, { documentWeight });
   const extra = expandQuery(queryText);
   const searchText = extra.length === 0 ? queryText : queryText + ' ' + extra.join(' ');
   const hits: QueryHit[] = index.search(searchText, topK).map((hit) => {

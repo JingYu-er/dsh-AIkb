@@ -79,9 +79,10 @@ The index is language-mixed (Chinese notes next to English manuals), so the
 tokenizer emits CJK bigrams plus lowercased Latin words and drops question
 filler ("什么", "原理", "工作"). A small domain glossary expands Chinese terms
 into their English equivalents before scoring ("波特率" adds "baud rate"), the
-BM25 score is scaled by query coverage so a page matching half the question
-cannot outrank one matching all of it, and the TOC section is weighted above
-body text.
+BM25 score is scaled by IDF-weighted query coverage (missing a rare word costs
+more than missing a common one), the TOC section is weighted above body text,
+and a query naming a device ("ADA4505", "MG996R") is scoped to the book whose
+file name carries that token.
 
 Input: `{ query: string, topK?: number, vaultPath?: string }`
 

@@ -13,6 +13,8 @@ export interface Bm25Hit {
 export interface Bm25Options {
   readonly k1?: number;
   readonly b?: number;
+  /** Optional per-document multiplier, e.g. to scope a query to the book it names. */
+  readonly documentWeight?: (document: Bm25Document) => number;
 }
 
 export interface Bm25Index {
@@ -27,6 +29,7 @@ const DEFAULT_B = 0.75;
 export function createBm25(documents: readonly Bm25Document[], options: Bm25Options = {}): Bm25Index {
   const k1 = options.k1 ?? DEFAULT_K1;
   const b = options.b ?? DEFAULT_B;
+  const documentWeight = options.documentWeight;
   const docTokens: string[][] = [];
   const docLengths: number[] = [];
   const df = new Map<string, number>();
@@ -60,18 +63,23 @@ export function createBm25(documents: readonly Bm25Document[], options: Bm25Opti
         const frequencies = new Map<string, number>();
         for (const token of tokens) frequencies.set(token, (frequencies.get(token) ?? 0) + 1);
         let score = 0;
-        let matched = 0;
+        let matchedWeight = 0;
+        let totalWeight = 0;
         for (const token of queryTokens) {
+          const weight = idf.get(token) ?? 0;
+          totalWeight += weight;
           const frequency = frequencies.get(token);
           if (frequency === undefined) continue;
-          matched += 1;
-          const weight = idf.get(token) ?? 0;
+          matchedWeight += weight;
           const denominator = frequency + k1 * (1 - b + b * (tokens.length / (averageLength || 1)));
           score += weight * ((frequency * (k1 + 1)) / denominator);
         }
         // A chunk that matches half the question should not outrank one that covers all of it.
-        const coverage = matched / queryTokens.length;
+        // Coverage is weighted by IDF: missing a common word costs less than missing a rare one,
+        // so a part number or a device name carries the match on its own.
+        const coverage = totalWeight === 0 ? 0 : matchedWeight / totalWeight;
         score *= 0.4 + 0.6 * coverage;
+        if (documentWeight !== undefined) score *= documentWeight(documents[index] as Bm25Document);
         if (score > 0) hits.push({ id: documents[index]?.id ?? '', score });
       }
       hits.sort((left, right) => right.score - left.score);
