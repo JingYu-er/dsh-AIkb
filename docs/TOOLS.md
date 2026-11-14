@@ -54,9 +54,11 @@ exists is skipped unless `force` is set.
 Input: `{ vaultPath?: string, limit?: number, pathPrefix?: string, paths?: string[], force?: boolean }`
 
 `paths` names exact inventory entries (relative to the vault) and wins over
-`pathPrefix`; `limit` still caps the batch. A source with fewer than 200
-extractable characters is rejected as `pdf.no-text-layer` instead of writing an
-empty chunk file, so scanned books are visible in the report rather than silent.
+`pathPrefix`; `limit` still caps the batch. A source is rejected as `pdf.no-text-layer` instead of writing an empty chunk
+file when it has fewer than 200 extractable characters **or** fewer than 15
+characters per page (a scan often carries page numbers only, so total characters
+alone would let it through). A rejected source also has its previously indexed
+chunks removed, so a stale entry cannot keep haunting queries.
 
 Output: `ok`, `books[]` (`path`, `sha256`, `pages`, `chunks`, `tokens`,
 `status`, `error?`), `totals`, `indexPath`, `elapsedMs`, and `python`

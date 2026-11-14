@@ -94,7 +94,21 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8): Promis
   const index = createBm25(documents, { documentWeight });
   const extra = expandQuery(queryText);
   const searchText = extra.length === 0 ? queryText : queryText + ' ' + extra.join(' ');
-  const hits: QueryHit[] = index.search(searchText, topK).map((hit) => {
+  // Near-duplicate manuals (STM32F1 vs STM32C0, MSP430 family guides) would otherwise fill
+  // every slot with one book. Keep the best pages but spread the hits across sources.
+  const MAX_HITS_PER_BOOK = 2;
+  const ranked = index.search(searchText, Math.max(topK * 6, 40));
+  const perBook = new Map<string, number>();
+  const selected: typeof ranked = [];
+  for (const hit of ranked) {
+    const path = chunksById.get(hit.id)?.path ?? '';
+    const used = perBook.get(path) ?? 0;
+    if (used >= MAX_HITS_PER_BOOK) continue;
+    perBook.set(path, used + 1);
+    selected.push(hit);
+    if (selected.length >= topK) break;
+  }
+  const hits: QueryHit[] = selected.map((hit) => {
     const stored = chunksById.get(hit.id);
     const base: QueryHit = {
       path: stored?.path ?? '',

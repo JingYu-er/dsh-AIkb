@@ -81,15 +81,27 @@ kb_query    { query: "镜像电流源 原理" }     # hits with page + section
 
 ## Retrieval quality
 
-Measured on the author's vault (10 indexed books, ~7.5k page-anchored chunks),
-scoring the top-5 hits: a hit counts as a page hit when it lands within ±2 pages
-of the independently located answer page. Truth pages come from raw PyMuPDF text
-search, not from the retrieval system itself.
+Measured on the author's vault (173 indexed books, 22k page-anchored chunks,
+18.8k pages). Truth pages come from raw PyMuPDF text search, not from the
+retrieval system itself. Two numbers matter:
 
-| Set | page hit (top-5) | correct book at #1 | in top-3 |
+- **exact page** — a top-5 hit lands in the truth book within ±2 pages of the
+  answer page. This is the citation-grade bar.
+- **topic** — a top-5 hit comes from the right book *family* (STM32 manuals,
+  MSP430 manuals, analog-electronics textbooks). Duplicated manuals answer the
+  question just as well, so this is the honest "can it answer" bar.
+
+| Corpus | Set | exact page (top-5) | topic (top-5) |
 | --- | --- | --- | --- |
-| Tuned (15 questions used during development) | 13/15 | 12/15 | 15/15 |
-| Held-out (11 unseen questions, unseen pages) | 8/11 | 8/11 | 10/11 |
+| 10 books | Tuned (15 questions) | 13/15 | 15/15 |
+| 10 books | Held-out (11 questions) | 8/11 | 11/11 |
+| 173 books | Tuned | 6/15 | 15/15 |
+| 173 books | Held-out | 4/11 | 11/11 |
+
+Growing the corpus from 10 to 173 books costs exact-page precision (near-duplicate
+manuals and textbooks compete) but never loses the topic: every question still
+surfaces the right book family in its top 5. Hits are capped at two per book so a
+single manual cannot fill the list.
 
 What moves the number, in order of impact: the Chinese↔English glossary
 (6/15 → 12/15 on the tuned set — Chinese questions barely share surface tokens

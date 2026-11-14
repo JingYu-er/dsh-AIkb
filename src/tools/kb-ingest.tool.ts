@@ -1,3 +1,4 @@
+import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { NodeVaultFs } from '../adapters/fs/node-vault-fs.js';
 import { NodeVaultWriter } from '../adapters/fs/node-vault-writer.js';
@@ -130,6 +131,10 @@ export function createKbIngestTool(deps: KbIngestDeps) {
           exists: (relPath: string) => vaultFs.exists(relPath),
           readText: (relPath: string) => vaultFs.readText(relPath),
           writeText: (relPath: string, content: string) => writer.writeText(relPath, content),
+          remove: async (relPath: string) => {
+            if (!relPath.startsWith('.wiki/index/')) throw new DomainError('vault.write-denied', 'refusing to remove outside .wiki/index: ' + relPath);
+            await rm(join(root, relPath.split('/').join(process.platform === 'win32' ? '\\' : '/')), { force: true });
+          },
         };
         const report = await runIngest(
           fs,

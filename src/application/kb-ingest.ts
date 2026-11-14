@@ -14,6 +14,8 @@ export interface IngestFs {
   exists(relPath: string): Promise<boolean>;
   readText(relPath: string): Promise<string>;
   writeText(relPath: string, content: string): Promise<number>;
+  /** Optional: drop a stale chunk file when a re-ingest reveals the source has no text layer. */
+  remove?(relPath: string): Promise<void>;
 }
 
 export interface ExtractedBook {
@@ -25,6 +27,8 @@ export interface ExtractedBook {
 
 /** Below this many characters a document is treated as having no text layer. */
 export const MIN_TEXT_CHARS = 200;
+/** Below this many characters per page it is a scan: page numbers alone clear MIN_TEXT_CHARS. */
+export const MIN_CHARS_PER_PAGE = 15;
 
 export interface IngestOptions {
   readonly limit?: number;
@@ -152,7 +156,14 @@ export async function runIngest(
     try {
       const extracted = await extract(entry);
       const textChars = extracted.textChars ?? extracted.pages.reduce((sum, page) => sum + page.blocks.reduce((n, block) => n + block.length, 0), 0);
-      if (textChars < MIN_TEXT_CHARS) {
+      const charsPerPage = extracted.pages.length === 0 ? 0 : textChars / extracted.pages.length;
+      if (textChars < MIN_TEXT_CHARS || charsPerPage < MIN_CHARS_PER_PAGE) {
+        // A scan can still carry page numbers, so density decides; drop whatever an earlier
+        // run indexed from the same file so a stale chunk file cannot keep haunting queries.
+        if (catalog.sources[entry.sha256] !== undefined) {
+          delete catalog.sources[entry.sha256];
+          if (fs.remove !== undefined) await fs.remove(chunkPath);
+        }
         books.push({
           path: entry.path,
           sha256: entry.sha256,
@@ -160,7 +171,7 @@ export async function runIngest(
           chunks: 0,
           tokens: 0,
           skipped: false,
-          error: 'pdf.no-text-layer: ' + textChars + ' extractable characters in ' + extracted.pages.length + ' pages (scanned image PDF; OCR is not implemented yet)',
+          error: 'pdf.no-text-layer: ' + textChars + ' extractable characters in ' + extracted.pages.length + ' pages (' + charsPerPage.toFixed(1) + ' chars/page; scanned image PDF, OCR is not implemented yet)',
         });
         continue;
       }

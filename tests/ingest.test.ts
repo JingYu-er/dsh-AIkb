@@ -16,3 +16,18 @@ test('reports pdf.no-text-layer instead of writing an empty chunk file', async (
   assert.equal(written.some((relPath) => relPath.includes('/chunks/')), false);
   assert.equal(report.totals.chunks, 0);
 });
+
+test('a scan whose only text is page numbers is rejected by characters per page', async () => {
+  const written: string[] = [];
+  const sha = 'b'.repeat(64);
+  const fs: IngestFs = {
+    root: '/vault',
+    exists: async (relPath) => relPath === '.wiki/books.jsonl' || written.includes(relPath),
+    readText: async () => JSON.stringify({ path: '书/scan2.pdf', sha256: sha, format: 'pdf', bytes: 10, modifiedAt: '2026-01-01T00:00:00.000Z' }),
+    writeText: async (relPath, content) => { written.push(relPath); return content.length; },
+  };
+  const pages = Array.from({ length: 40 }, (_, index) => ({ page: index + 1, width: 1, height: 1, blocks: ['12'] }));
+  const report = await runIngest(fs, async () => ({ pages, toc: [], textChars: 40 * 2 }));
+  assert.match(report.books[0]?.error ?? '', /chars\/page/);
+  assert.equal(report.totals.chunks, 0);
+});
