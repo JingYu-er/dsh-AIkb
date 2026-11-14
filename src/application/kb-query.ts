@@ -21,8 +21,12 @@ export interface QueryOptions {
   /** Query vector; absent keeps retrieval lexical. */
   readonly queryVector?: readonly number[];
   readonly vectors?: VectorStore;
-  /** Reciprocal-rank-fusion constant; 60 is the usual default. */
-  readonly rrfK?: number;
+  /**
+   * Share of the result list reserved for vector-only hits (rounded down, at least 1 whenever
+   * vectors are available). BM25 keeps the rest, so an exact lexical page is never displaced by
+   * a semantically close but page-imprecise vector hit.
+   */
+  readonly vectorShare?: number;
 }
 
 export interface QueryHit {
@@ -134,35 +138,54 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
   const searchText = extra.length === 0 ? queryText : queryText + ' ' + extra.join(' ');
   const ranked = index.search(searchText, Math.max(topK * 8, 64));
 
-  // Fusion is rank-based on purpose: BM25 scores and cosines live on different scales, and a
-  // weighted sum would need per-corpus tuning that nobody can justify.
-  const rrfK = options.rrfK ?? 60;
-  const fused = new Map<string, number>();
-  ranked.slice(0, 64).forEach((hit, rank) => fused.set(hit.id, (fused.get(hit.id) ?? 0) + 1 / (rrfK + rank + 1)));
+  // Lexical-first interleaving. Fusing the two lists by rank (RRF) looked reasonable but the rank
+  // gaps are tiny (1/61 vs 1/62), so a page that is mediocre in BM25 and mediocre in vector space
+  // beats the best lexical page; on this vault that replaced a correct datasheet page with an
+  // unrelated chapter. Vectors therefore only fill the tail slots: exact lexical pages stay on
+  // top while paraphrased questions still get the semantically nearest pages at the end.
   const vectors = options.vectors;
   const queryVector = options.queryVector;
   let vectorCount = 0;
+  let vectorHits: VectorHit[] = [];
   if (vectors !== undefined && queryVector !== undefined && queryVector.length > 0) {
-    const vectorHits = topVectorHits(vectors, queryVector, 64);
+    vectorHits = topVectorHits(vectors, queryVector, 64);
     if (vectorHits.length > 0) vectorCount = Math.min(vectors.ids.length, Math.floor(vectors.data.length / vectors.dims));
-    vectorHits.forEach((hit, rank) => fused.set(hit.id, (fused.get(hit.id) ?? 0) + 1 / (rrfK + rank + 1)));
   }
-  const ordered = [...fused.entries()]
-    .filter(([id]) => chunksById.has(id))
-    .sort((left, right) => right[1] - left[1]);
+  // Never take more than the last few slots: the top 5 stay lexical, because BM25 pages are exactly
+  // right while vector pages drift by a section. Below topK=6 there is no room for a vector slot.
+  const shared = Math.max(0, Math.min(Math.floor(topK * (options.vectorShare ?? 0.25)), topK - 5));
+  const vectorQuota = vectorHits.length === 0 ? 0 : shared;
+  const lexicalQuota = topK - vectorQuota;
 
   // Near-duplicate manuals (STM32F1 vs STM32C0, MSP430 family guides) would otherwise fill
   // every slot with one book. Keep the best pages but spread the hits across sources.
   const perBook = new Map<string, number>();
   const selected: { id: string; score: number }[] = [];
-  for (const [id, score] of ordered) {
+  const take = (id: string, score: number): void => {
     const path = chunksById.get(id)?.path ?? '';
     const used = perBook.get(path) ?? 0;
-    if (used >= MAX_HITS_PER_BOOK) continue;
+    if (used >= MAX_HITS_PER_BOOK) return;
     perBook.set(path, used + 1);
     selected.push({ id, score });
+  };
+  const best = ranked[0]?.score ?? 0;
+  let cursor = 0;
+  const takeLexical = (limit: number): void => {
+    while (selected.length < limit && cursor < ranked.length) {
+      const hit = ranked[cursor];
+      cursor += 1;
+      if (hit === undefined || !chunksById.has(hit.id)) continue;
+      take(hit.id, best > 0 ? hit.score / best : 0);
+    }
+  };
+  takeLexical(lexicalQuota);
+  for (const hit of vectorHits) {
     if (selected.length >= topK) break;
+    if (!chunksById.has(hit.id)) continue;
+    if (selected.some((entry) => entry.id === hit.id)) continue;
+    take(hit.id, hit.cosine);
   }
+  takeLexical(topK);
   const hits: QueryHit[] = selected.map((hit) => {
     const stored = chunksById.get(hit.id);
     const base: QueryHit = {

@@ -25,6 +25,10 @@ export interface KbQueryDeps {
 
 const LINE_FEED = String.fromCharCode(10);
 const VECTORS_DIR = '.wiki/index/vectors';
+// Vector hits are semantically right but page-imprecise (a match can land in the right section
+// yet 20 pages off), so they only fill the tail of the list: 1 slot for the default top-5, 2 for
+// top-8. Lexical pages therefore always keep the top spots.
+const VECTOR_SHARE = 0.25;
 
 const OUTPUT_SCHEMA: SchemaNode = {
   type: 'object',
@@ -169,6 +173,7 @@ export function createKbQueryTool(deps: KbQueryDeps) {
         });
         return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8, {
           vectors,
+          vectorShare: VECTOR_SHARE,
           ...(queryVector === undefined ? {} : { queryVector }),
         });
       } catch (error) {

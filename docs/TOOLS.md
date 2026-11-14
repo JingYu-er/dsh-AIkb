@@ -88,9 +88,21 @@ is recorded per book.
 
 Search over the local chunk index, returning provenance for every hit. Lexical
 (BM25) by default; when `kb_embed` has built vectors, the query is embedded with
-the same model and the two rankings are fused with reciprocal rank fusion
-(k = 60). Fusion is rank-based on purpose: BM25 scores and cosines live on
-different scales, and a weighted sum would need per-corpus tuning.
+the same model and the vector hits fill the tail of the list.
+
+Retrieval is lexical-first, not rank-fused. Reciprocal rank fusion was tried and
+rejected: the gaps between adjacent RRF ranks are tiny (1/61 vs 1/62), so a page
+that is mediocre in BM25 *and* mediocre in vector space beats the best lexical
+page — on this vault that replaced a correct datasheet page with an unrelated
+chapter. Instead BM25 fills all but the last `floor(topK × 0.25)` slots (never
+taking any of the top five), and vector-only hits fill those tail slots, best
+cosine first. So the top of the list is always the exact lexical match, and
+paraphrased questions still get semantically close pages at positions 7–8.
+
+Expect vector hits to be semantically right but page-imprecise: e5-small maps a
+section to the right topic yet can land ~20 pages away, and long Chinese
+technical text produces a compressed cosine range (0.85–0.93 even for unrelated
+chunks). Verify a vector-only hit on the original page before quoting it.
 
 The index is language-mixed (Chinese notes next to English manuals), so the
 tokenizer emits CJK bigrams plus lowercased Latin words and drops question
