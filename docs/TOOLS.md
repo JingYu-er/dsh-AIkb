@@ -86,7 +86,11 @@ is recorded per book.
 
 ## kb_query
 
-BM25 search over the local chunk index, returning provenance for every hit.
+Search over the local chunk index, returning provenance for every hit. Lexical
+(BM25) by default; when `kb_embed` has built vectors, the query is embedded with
+the same model and the two rankings are fused with reciprocal rank fusion
+(k = 60). Fusion is rank-based on purpose: BM25 scores and cosines live on
+different scales, and a weighted sum would need per-corpus tuning.
 
 The index is language-mixed (Chinese notes next to English manuals), so the
 tokenizer emits CJK bigrams plus lowercased Latin words and drops question
@@ -100,10 +104,38 @@ file name carries that token.
 Input: `{ query: string, topK?: number, vaultPath?: string }`
 
 Output: `hits[]` (`path`, `page`, `section`, `score`, `excerpt`),
-`searched` (`sources`, `chunks`), `indexPresent`.
+`searched` (`sources`, `chunks`, `vectors` when hybrid), `retrieval`
+(`"bm25"` or `"hybrid"`). If the model or vectors are unavailable the query
+silently falls back to BM25 instead of failing.
 
 Every hit carries the note/book path, the 1-based page, and the TOC section.
 Answers must be built from these hits; the tool never invents a citation.
+
+## kb_embed
+
+Builds the local vector index that turns \`kb_query\` into hybrid search. Everything
+runs on this machine: the \`multilingual-e5-small\` ONNX export (384 dims) is
+downloaded once to \`<workspaceRoot>/.kb/models/\`, and chunks are embedded with
+numpy + onnxruntime. No model API, no tokens.
+
+Incremental by design: a book is re-embedded only when its sidecar count no
+longer matches the catalog's chunk count (re-ingesting changes the count), or
+when \`force\` is set. One Python process loads the model once and streams one
+JSON line per book, so a failure on one book leaves the others committed.
+
+Vectors live in \`.wiki/index/vectors/<sha256>.vec\` (raw float32, L2-normalised)
+with a \`<sha256>.json\` sidecar (\`model\`, \`dims\`, \`count\`, \`ids\`, \`embeddedAt\`).
+Writes only inside \`.wiki/index/vectors/\`; the venv interpreter is denied writes
+inside the vault, so Python stages into \`<workspaceRoot>/temp/embed/staging\` and
+the plugin moves the finished files in.
+
+Cost on a 16-core box: ~7 chunks/s on 12 threads, so a 23k-chunk vault takes
+about an hour once; query embedding adds ~1–2 s (model load) to a search.
+
+Input: \`{ vaultPath?: string, limit?: number, force?: boolean }\`
+
+Output: \`books[]\` (\`path\`, \`sha256\`, \`chunks\`, \`seconds\`, \`error\`),
+\`totals\` (\`books\`, \`chunks\`, \`upToDate\`), \`model\`.
 
 ## Error codes
 
@@ -116,6 +148,9 @@ Answers must be built from these hits; the tool never invents a citation.
 | `kb.writes-disabled` | Write requested while `allowWrites` is false. |
 | `ingest.manifest-missing` | `.wiki/books.jsonl` absent; run `kb_inventory` with `write` first. |
 | `query.index-missing` | No catalog; run `kb_ingest` first. |
+| `embed.index-missing` | No catalog; run `kb_ingest` first. |
+| `embed.model-missing` | tokenizers/onnxruntime or the ONNX model could not be prepared. |
+| `embed.failed` | Embedding run failed; the message carries the cause. |
 | `pdf.python-missing` | No interpreter with PyMuPDF and the automatic venv bootstrap failed; the message carries the probe/install errors. |
 | `pdf.extract-failed` | Extractor exited non-zero or produced invalid JSON. |
 

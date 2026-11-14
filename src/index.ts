@@ -1,11 +1,14 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import * as nodePath from 'node:path';
+import { ensureEmbeddingEnv } from './adapters/embeddings/embedding-env.js';
+import type { EmbeddingEnvReport } from './adapters/embeddings/embedding-env.js';
 import { ensureOcrEnv } from './adapters/pdf/ocr-env.js';
 import type { OcrEnvReport } from './adapters/pdf/ocr-env.js';
 import { ensurePythonEnv } from './adapters/pdf/python-env.js';
 import type { PythonEnvReport } from './adapters/pdf/python-env.js';
 import { registerTool } from './tools/definition.js';
 import { createKbDoctorTool } from './tools/kb-doctor.tool.js';
+import { createKbEmbedTool } from './tools/kb-embed.tool.js';
 import { createKbIngestTool } from './tools/kb-ingest.tool.js';
 import { createKbInventoryTool } from './tools/kb-inventory.tool.js';
 import { createKbQueryTool } from './tools/kb-query.tool.js';
@@ -41,6 +44,12 @@ export interface KbPluginConfig {
   readonly ocrWorkers?: number;
   /** OCR only the first N pages of each scanned book (a cheap first experiment). */
   readonly ocrMaxPages?: number;
+  /** Local embeddings for hybrid search. On by default; kb_embed builds them on demand. */
+  readonly embedEnabled?: boolean;
+  /** Directory holding tokenizer.json + model_quantized.onnx. Default <workspaceRoot>/.kb/models/multilingual-e5-small. */
+  readonly embedModelDir?: string;
+  /** Base URL the ONNX files are fetched from on first use. Default: hf-mirror. */
+  readonly embedModelUrl?: string;
 }
 
 interface ToolsRegistry {
@@ -129,6 +138,24 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
   };
   const ocrEnabled = config.ocrEnabled !== false;
 
+  /** The e5-small model is downloaded once per machine, like the venv. */
+  let embeddingEnvOnce: Promise<EmbeddingEnvReport> | undefined;
+  const embeddingEnv = (): Promise<EmbeddingEnvReport> => {
+    if (embeddingEnvOnce !== undefined) return embeddingEnvOnce;
+    const pending = ensureEmbeddingEnv({
+      workspaceRoot,
+      pythonPath: config.pythonPath ?? '',
+      venvPath: config.venvPath ?? '',
+      mirrorUrl: config.pythonMirror ?? '',
+      modelDir: config.embedModelDir ?? '',
+      modelUrl: config.embedModelUrl ?? '',
+      bootstrap: true,
+    });
+    embeddingEnvOnce = pending;
+    return pending;
+  };
+  const embedEnabled = config.embedEnabled !== false;
+
   try {
     registerTool(ctx, createKbDoctorTool({ allowWrites, resolveRoot, inspectPython: () => pythonEnv(false) }));
     registerTool(ctx, createKbInventoryTool({ allowWrites, resolveRoot }));
@@ -145,10 +172,28 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
         ...(config.ocrMaxPages !== undefined ? { ocrMaxPages: config.ocrMaxPages } : {}),
       }),
     );
-    registerTool(ctx, createKbQueryTool({ resolveRoot }));
+    registerTool(
+      ctx,
+      createKbQueryTool({
+        resolveRoot,
+        workspaceRoot: () => workspaceRoot,
+        embedEnabled,
+        ...(embedEnabled ? { prepareEmbedding: () => embeddingEnv() } : {}),
+      }),
+    );
+    registerTool(
+      ctx,
+      createKbEmbedTool({
+        resolveRoot,
+        workspaceRoot: () => workspaceRoot,
+        allowWrites: () => allowWrites,
+        prepareEmbedding: () => embeddingEnv(),
+        vectorsDir: '.wiki/index/vectors',
+      }),
+    );
   } catch (error) {
     logBoot(workspaceRoot, 'apply-failed', error instanceof Error ? error.message : String(error));
     throw error;
   }
-  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_ingest kb_query');
+  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_ingest kb_query kb_embed');
 }

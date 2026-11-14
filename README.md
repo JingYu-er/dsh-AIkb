@@ -28,6 +28,10 @@ Writes are off by default and, when enabled, are confined to `inbox/` and
   **not** need to install PyMuPDF yourself: the first `kb_ingest` creates
   `<workspaceRoot>/.kb/venv` and installs PyMuPDF into it through a mirror, then
   reuses it. `kb_doctor` only probes, it never installs.
+- Optional hybrid search: `kb_embed` creates the same kind of private environment
+  on first use — it installs `tokenizers`/`onnxruntime` and downloads the
+  multilingual-e5-small ONNX model (~130 MB) into
+  `<workspaceRoot>/.kb/models/`. Everything runs locally; no model API, no tokens.
 - A vault: a directory containing `.obsidian/`
 
 (EPUB/DJVU parsers are not wired yet; `kb_ingest` reports them as errors.)
@@ -71,6 +75,9 @@ Configure the machine-specific parts in the profile's `cordis.patch.yml`
     ocrEnabled: true                      # local OCR for scans (default on)
     ocrWorkers: 4                         # OCR processes; 4 beat 8 on a 16-core box
     ocrMaxPages: 40                       # first experiment: only the first N pages
+    embedEnabled: true                    # hybrid search (default on)
+    embedModelDir: D:/path/to/e5-small    # default <workspaceRoot>/.kb/models/multilingual-e5-small
+    embedModelUrl: https://hf-mirror.com/Xenova/multilingual-e5-small/resolve/main
 ```
 
 ## Usage
@@ -79,6 +86,7 @@ Configure the machine-specific parts in the profile's `cordis.patch.yml`
 kb_doctor                                  # is this vault readable?
 kb_inventory { write: true }               # hash every PDF
 kb_ingest   { limit: 3 }                   # first three books
+kb_embed    { limit: 5 }                   # local vectors over the index (incremental)
 kb_query    { query: "镜像电流源 原理" }     # hits with page + section
 ```
 
