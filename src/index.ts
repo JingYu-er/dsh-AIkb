@@ -1,7 +1,8 @@
-import { existsSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import * as nodePath from 'node:path';
 import { ensurePythonEnv } from './adapters/pdf/python-env.js';
 import type { PythonEnvReport } from './adapters/pdf/python-env.js';
+import { registerTool } from './tools/definition.js';
 import { createKbDoctorTool } from './tools/kb-doctor.tool.js';
 import { createKbIngestTool } from './tools/kb-ingest.tool.js';
 import { createKbInventoryTool } from './tools/kb-inventory.tool.js';
@@ -63,8 +64,24 @@ export function resolveVaultRoot(config: KbPluginConfig, explicit?: string, cwd:
   return nodePath.resolve(root);
 }
 
+/** Best-effort boot trace: a failed write must never break plugin loading. */
+function logBoot(workspaceRoot: string, event: string, detail: string): void {
+  try {
+    const dir = nodePath.join(workspaceRoot, '.kb', 'logs');
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(nodePath.join(dir, 'boot.log'), new Date().toISOString() + ' ' + event + ' ' + detail + String.fromCharCode(10), 'utf8');
+  } catch {
+    // diagnostics only
+  }
+}
+
 export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
+  const bootRoot = config.workspaceRoot !== undefined && config.workspaceRoot.trim() !== ''
+    ? nodePath.resolve(config.workspaceRoot.trim())
+    : process.cwd();
+  logBoot(bootRoot, 'apply', 'apply() entered');
   if (ctx.tools === undefined || typeof ctx.tools.register !== 'function') {
+    logBoot(bootRoot, 'apply-failed', 'tools service unavailable');
     throw new Error('dsh-kb: the tools service is unavailable; declare inject = ["tools"] (see src/index.ts)');
   }
   const allowWrites = config.allowWrites === true;
@@ -88,15 +105,22 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     return pending;
   };
 
-  ctx.tools.register(createKbDoctorTool({ allowWrites, resolveRoot, inspectPython: () => pythonEnv(false) }));
-  ctx.tools.register(createKbInventoryTool({ allowWrites, resolveRoot }));
-  ctx.tools.register(
-    createKbIngestTool({
-      allowWrites,
-      resolveRoot,
-      preparePython: () => pythonEnv(true),
-      pythonLibPath: config.pythonLibPath ?? '',
-    }),
-  );
-  ctx.tools.register(createKbQueryTool({ resolveRoot }));
+  try {
+    registerTool(ctx, createKbDoctorTool({ allowWrites, resolveRoot, inspectPython: () => pythonEnv(false) }));
+    registerTool(ctx, createKbInventoryTool({ allowWrites, resolveRoot }));
+    registerTool(
+      ctx,
+      createKbIngestTool({
+        allowWrites,
+        resolveRoot,
+        preparePython: () => pythonEnv(true),
+        pythonLibPath: config.pythonLibPath ?? '',
+      }),
+    );
+    registerTool(ctx, createKbQueryTool({ resolveRoot }));
+  } catch (error) {
+    logBoot(workspaceRoot, 'apply-failed', error instanceof Error ? error.message : String(error));
+    throw error;
+  }
+  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_ingest kb_query');
 }

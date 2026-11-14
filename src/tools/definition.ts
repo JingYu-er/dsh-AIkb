@@ -1,8 +1,17 @@
 /**
- * Structural copy of the DSH tool DSL. The plugin ships no runtime dependency on
- * @deepseek-ai/dsh-tools: the host validates and dispatches the definition, we only
- * have to produce a conforming object. Keeping the types here also keeps the plugin
- * loadable across DSH releases.
+ * Structural copy of the DSH tool DSL, plus the projection step the host expects.
+ *
+ * What the host actually consumes differs from what a tool author wants to write:
+ *  - `tools.register()` validates `output.schema` with assertSupportedJsonSchema, which
+ *    accepts only the raw JSON-Schema subset (type/oneOf/properties/required/
+ *    additionalProperties/items/enum/const + annotations). Per-property
+ *    `required: true` is an author convenience that must be compiled into the
+ *    object's `required: [...]` array first.
+ *  - `parameters` is handed to the model verbatim, so it must already be a raw
+ *    object schema, not a bare property map.
+ *
+ * The plugin still ships no runtime dependency on @deepseek-ai/dsh-tools: this file
+ * reproduces the two conversions that dsh-tools' defineTool() performs.
  */
 export type SchemaNode = {
   readonly type: 'string' | 'number' | 'integer' | 'boolean' | 'null' | 'array' | 'object' | 'json';
@@ -13,6 +22,17 @@ export type SchemaNode = {
   readonly additionalProperties?: boolean;
   readonly enum?: readonly string[];
 };
+
+/** Raw JSON Schema in the subset the host accepts. */
+export interface RawSchema {
+  readonly type?: 'string' | 'number' | 'integer' | 'boolean' | 'null' | 'array' | 'object';
+  readonly description?: string;
+  readonly enum?: readonly string[];
+  readonly properties?: Readonly<Record<string, RawSchema>>;
+  readonly required?: readonly string[];
+  readonly additionalProperties?: boolean;
+  readonly items?: RawSchema;
+}
 
 export interface TextBlock {
   readonly type: 'text';
@@ -36,4 +56,60 @@ export interface ToolDefinition<Args, Value> {
 
 export function defineTool<Args, Value>(definition: ToolDefinition<Args, Value>): ToolDefinition<Args, Value> {
   return definition;
+}
+
+/** Compile one author node into the raw subset; `required: true` becomes a parent list. */
+export function toRawSchema(node: SchemaNode): RawSchema {
+  const description = node.description === undefined ? {} : { description: node.description };
+  if (node.type === 'json') return description;
+  if (node.type === 'array') {
+    return node.items === undefined
+      ? { type: 'array', ...description }
+      : { type: 'array', items: toRawSchema(node.items), ...description };
+  }
+  if (node.type === 'object') {
+    const properties = Object.entries(node.properties ?? {});
+    const compiled: Record<string, RawSchema> = {};
+    for (const [key, child] of properties) compiled[key] = toRawSchema(child);
+    const required = properties.filter(([, child]) => child.required === true).map(([key]) => key);
+    return {
+      type: 'object',
+      properties: compiled,
+      ...(required.length === 0 ? {} : { required }),
+      additionalProperties: node.additionalProperties ?? false,
+      ...description,
+    };
+  }
+  const leaf: RawSchema = { type: node.type, ...description };
+  return node.enum === undefined ? leaf : { ...leaf, enum: node.enum };
+}
+
+/** Compile the author parameter map into a raw object schema for the model. */
+export function toRawParameters(parameters: Readonly<Record<string, SchemaNode>>): RawSchema {
+  return toRawSchema({ type: 'object', properties: parameters });
+}
+
+/** Compile a definition into exactly what `ctx.tools.register()` accepts. */
+export function toRegisteredTool<Args, Value>(definition: ToolDefinition<Args, Value>): {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: RawSchema;
+  readonly output: { readonly schema: RawSchema; render(args: Args, value: Value): readonly TextBlock[] };
+  execute(args: Args, exec: ToolExecution): Promise<Value>;
+} {
+  return {
+    name: definition.name,
+    description: definition.description,
+    parameters: toRawParameters(definition.parameters),
+    output: { schema: toRawSchema(definition.output.schema), render: definition.output.render },
+    execute: definition.execute,
+  };
+}
+
+export interface ToolRegisterTarget {
+  readonly tools: { register(definition: unknown): void };
+}
+
+export function registerTool<Args, Value>(target: ToolRegisterTarget, definition: ToolDefinition<Args, Value>): void {
+  target.tools.register(toRegisteredTool(definition));
 }
