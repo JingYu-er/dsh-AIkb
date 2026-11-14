@@ -44,6 +44,13 @@ export interface IngestReport {
   readonly vaultRoot: string;
   readonly books: readonly IngestBookReport[];
   readonly totals: { readonly books: number; readonly pages: number; readonly chunks: number; readonly tokens: number };
+  /** Which interpreter produced the text; present when the tool actually ran the extractor. */
+  readonly python?: {
+    readonly pythonPath: string;
+    readonly source: string;
+    readonly venvPath: string;
+    readonly bootstrapped: boolean;
+  };
   readonly elapsedMs: number;
 }
 

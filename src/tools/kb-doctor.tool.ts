@@ -1,6 +1,7 @@
 import { NodeVaultFs } from '../adapters/fs/node-vault-fs.js';
 import { failedDoctorReport, runDoctor } from '../application/kb-doctor.js';
 import type { DoctorReport } from '../application/kb-doctor.js';
+import type { PythonEnvReport } from '../adapters/pdf/python-env.js';
 import type { SchemaNode } from './definition.js';
 import { defineTool } from './definition.js';
 
@@ -11,6 +12,8 @@ export interface KbDoctorArgs {
 export interface KbDoctorDeps {
   readonly resolveRoot: (explicit?: string) => string;
   readonly allowWrites: boolean;
+  /** Probe only: kb_doctor never installs anything. */
+  readonly inspectPython?: () => Promise<PythonEnvReport>;
 }
 
 const LINE_FEED = String.fromCharCode(10);
@@ -62,6 +65,19 @@ const OUTPUT_SCHEMA: SchemaNode = {
         entries: { type: 'integer', required: true },
       },
     },
+    python: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        ok: { type: 'boolean', required: true },
+        pythonPath: { type: 'string', required: true },
+        source: { type: 'string', required: true },
+        venvPath: { type: 'string', required: true },
+        pymupdfVersion: { type: 'string', required: true },
+        bootstrapped: { type: 'boolean', required: true },
+        errors: { type: 'array', items: { type: 'string' } },
+      },
+    },
     checks: {
       type: 'array',
       required: true,
@@ -96,6 +112,14 @@ function renderReport(report: DoctorReport): string {
   );
   lines.push('writes: ' + (report.writesEnabled ? 'enabled (inbox/, .wiki/)' : 'read-only'));
   lines.push('books manifest: ' + (report.booksManifest.present ? report.booksManifest.entries + ' entries' : 'missing'));
+  if (report.python !== undefined) {
+    const python = report.python;
+    lines.push(
+      'python: ' + (python.ok
+        ? python.source + ' -> ' + python.pythonPath + ' (PyMuPDF ' + python.pymupdfVersion + ')'
+        : 'not ready (kb_ingest will create ' + python.venvPath + ' and install PyMuPDF)'),
+    );
+  }
   for (const check of report.checks) {
     lines.push('[' + check.status + '] ' + check.id + ': ' + check.detail);
   }
@@ -126,7 +150,35 @@ export function createKbDoctorTool(deps: KbDoctorDeps) {
       try {
         root = deps.resolveRoot(args.vaultPath);
         const vaultFs = new NodeVaultFs(root);
-        return await runDoctor(vaultFs, { allowWrites: deps.allowWrites });
+        const report = await runDoctor(vaultFs, { allowWrites: deps.allowWrites });
+        if (deps.inspectPython === undefined) return report;
+        const python = await deps.inspectPython();
+        const checks = [
+          ...report.checks,
+          {
+            id: 'python.pymupdf',
+            status: python.ok ? ('pass' as const) : ('warn' as const),
+            detail: python.ok
+              ? python.source + ': ' + python.pythonPath + ' (PyMuPDF ' + python.pymupdfVersion + ')'
+              : 'no interpreter with PyMuPDF yet; first kb_ingest creates ' + python.venvPath + ' and installs it',
+          },
+        ];
+        const nextActions = [...report.nextActions];
+        if (!python.ok) nextActions.push('run kb_ingest once to prepare Python (venv at ' + python.venvPath + ')');
+        return {
+          ...report,
+          checks,
+          nextActions,
+          python: {
+            ok: python.ok,
+            pythonPath: python.pythonPath,
+            source: python.source,
+            venvPath: python.venvPath,
+            pymupdfVersion: python.pymupdfVersion,
+            bootstrapped: python.bootstrapped,
+            errors: python.errors,
+          },
+        };
       } catch (error) {
         return failedDoctorReport(root, error);
       }

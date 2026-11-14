@@ -2,8 +2,10 @@ import { join } from 'node:path';
 import { NodeVaultFs } from '../adapters/fs/node-vault-fs.js';
 import { NodeVaultWriter } from '../adapters/fs/node-vault-writer.js';
 import { extractPdf } from '../adapters/pdf/pymupdf.js';
+import type { PythonEnvReport } from '../adapters/pdf/python-env.js';
 import { emptyIngestReport, runIngest } from '../application/kb-ingest.js';
 import type { IngestReport } from '../application/kb-ingest.js';
+import { DomainError } from '../shared/result.js';
 import type { SchemaNode } from './definition.js';
 import { defineTool } from './definition.js';
 
@@ -17,7 +19,8 @@ export interface KbIngestArgs {
 export interface KbIngestDeps {
   readonly resolveRoot: (explicit?: string) => string;
   readonly allowWrites: boolean;
-  readonly pythonPath: string;
+  /** Probes the interpreter and, when needed, creates the venv and installs PyMuPDF. */
+  readonly preparePython: () => Promise<PythonEnvReport>;
   readonly pythonLibPath: string;
 }
 
@@ -34,6 +37,16 @@ const OUTPUT_SCHEMA: SchemaNode = {
       properties: { code: { type: 'string', required: true }, message: { type: 'string', required: true } },
     },
     vaultRoot: { type: 'string', required: true },
+    python: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        pythonPath: { type: 'string', required: true },
+        source: { type: 'string', required: true },
+        venvPath: { type: 'string', required: true },
+        bootstrapped: { type: 'boolean', required: true },
+      },
+    },
     books: {
       type: 'array',
       required: true,
@@ -70,6 +83,9 @@ const OUTPUT_SCHEMA: SchemaNode = {
 function renderReport(report: IngestReport): string {
   if (!report.ok) return 'kb_ingest FAILED ' + (report.error?.code ?? 'unknown') + ': ' + (report.error?.message ?? '');
   const lines: string[] = [];
+  if (report.python !== undefined) {
+    lines.push('python: ' + report.python.pythonPath + ' (' + report.python.source + (report.python.bootstrapped ? ', installed just now' : '') + ')');
+  }
   lines.push('ingested ' + report.totals.books + ' book(s): ' + report.totals.pages + ' pages, ' + report.totals.chunks + ' chunks, ~' + report.totals.tokens + ' tokens');
   for (const book of report.books.slice(0, 10)) {
     if (book.error !== undefined) lines.push('FAILED ' + book.path + ': ' + book.error);
@@ -85,7 +101,7 @@ export function createKbIngestTool(deps: KbIngestDeps) {
   return defineTool<KbIngestArgs, IngestReport>({
     name: 'kb_ingest',
     description:
-      'Compile selected PDF sources into the search index: extract page text with PyMuPDF, cut page-scoped chunks (never crossing a page), and write .wiki/index/<sha256>.jsonl plus the catalog. Incremental by content hash; requires writes enabled. Sources are cited by path + page, never copied into notes.',
+      'Compile selected PDF sources into the search index: prepare the private Python environment (create .kb/venv and install PyMuPDF on first use), extract page text, cut page-scoped chunks (never crossing a page), and write .wiki/index/<sha256>.jsonl plus the catalog. Incremental by content hash; requires writes enabled. Sources are cited by path + page, never copied into notes.',
     parameters: {
       vaultPath: { type: 'string', description: 'Absolute vault path. Defaults to the plugin config, then vault discovery.' },
       limit: { type: 'integer', description: 'Ingest at most this many sources from the manifest.' },
@@ -97,7 +113,14 @@ export function createKbIngestTool(deps: KbIngestDeps) {
       let root = '(unresolved)';
       try {
         root = deps.resolveRoot(args.vaultPath);
-        if (!deps.allowWrites) throw new Error('kb.writes-disabled: enable allowWrites in the plugin config to write the index');
+        if (!deps.allowWrites) throw new DomainError('kb.writes-disabled', 'enable allowWrites in the plugin config to write the index');
+        const python = await deps.preparePython();
+        if (!python.ok) {
+          throw new DomainError(
+            'pdf.python-missing',
+            'no Python with PyMuPDF and the automatic setup failed: ' + (python.errors.join(' | ') || 'unknown reason'),
+          );
+        }
         const vaultFs = new NodeVaultFs(root);
         const writer = new NodeVaultWriter(root);
         const fs = {
@@ -106,14 +129,18 @@ export function createKbIngestTool(deps: KbIngestDeps) {
           readText: (relPath: string) => vaultFs.readText(relPath),
           writeText: (relPath: string, content: string) => writer.writeText(relPath, content),
         };
-        return await runIngest(
+        const report = await runIngest(
           fs,
           (entry) => extractPdf(join(root, entry.path.split('/').join(process.platform === 'win32' ? '\\' : '/')), {
-            pythonPath: deps.pythonPath,
+            pythonPath: python.pythonPath,
             pythonLibPath: deps.pythonLibPath,
           }),
           { limit: args.limit, pathPrefix: args.pathPrefix, force: args.force },
         );
+        return {
+          ...report,
+          python: { pythonPath: python.pythonPath, source: python.source, venvPath: python.venvPath, bootstrapped: python.bootstrapped },
+        };
       } catch (error) {
         return emptyIngestReport(root, error);
       }

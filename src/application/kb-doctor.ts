@@ -48,6 +48,16 @@ export interface DoctorReport {
   readonly byExtension: Readonly<Record<string, number>>;
   readonly layout: { readonly inbox: boolean; readonly wiki: boolean; readonly git: boolean };
   readonly booksManifest: { readonly path: string; readonly present: boolean; readonly entries: number };
+  /** Python/PyMuPDF readiness; absent only when inspection never ran. */
+  readonly python?: {
+    readonly ok: boolean;
+    readonly pythonPath: string;
+    readonly source: string;
+    readonly venvPath: string;
+    readonly pymupdfVersion: string;
+    readonly bootstrapped: boolean;
+    readonly errors: readonly string[];
+  };
   readonly writesEnabled: boolean;
   readonly nextActions: readonly string[];
 }

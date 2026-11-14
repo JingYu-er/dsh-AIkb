@@ -15,9 +15,15 @@ Environment and vault self-check. Safe to call on an unfamiliar vault.
 Input: `{ vaultPath?: string }`
 
 Output: `ok`, `error` (code + message), `checks[]` (`.obsidian`, `notes`,
-`sources`, `versioning`, `manifest`), `counts` (notes, sources, attachments),
-`byExtension`, `layout` (inbox / .wiki / books.jsonl presence),
-`booksManifest` (entries, bytes), `writesEnabled`, `versionControl`, `nextActions`.
+`sources`, `versioning`, `manifest`, `python.pymupdf`), `counts` (notes, sources,
+attachments), `byExtension`, `layout` (inbox / .wiki / books.jsonl presence),
+`booksManifest` (entries, bytes), `python` (`ok`, `pythonPath`, `source`
+configured|venv|system, `venvPath`, `pymupdfVersion`, `errors`), `writesEnabled`,
+`versionControl`, `nextActions`.
+
+The Python section is a **probe only**: a missing interpreter is reported as a
+warning with the venv path the first `kb_ingest` will prepare; `kb_doctor` never
+installs anything.
 
 Never throws: filesystem failures come back as `ok: false` with a stable code.
 
@@ -48,7 +54,13 @@ exists is skipped unless `force` is set.
 Input: `{ vaultPath?: string, limit?: number, pathPrefix?: string, force?: boolean }`
 
 Output: `ok`, `books[]` (`path`, `sha256`, `pages`, `chunks`, `tokens`,
-`status`, `error?`), `totals`, `indexPath`, `elapsedMs`.
+`status`, `error?`), `totals`, `indexPath`, `elapsedMs`, and `python`
+(`pythonPath`, `source`, `venvPath`, `bootstrapped`) so the caller can see which
+interpreter produced the text.
+
+On first use it prepares its own environment: probes an explicit `pythonPath`, the
+private venv, then `python`; if none can import PyMuPDF it creates
+`<workspaceRoot>/.kb/venv` and installs PyMuPDF (mirror first, then pypi.org).
 
 Writes only `.wiki/index/chunks/<sha256>.jsonl` and `.wiki/index/catalog.json`
 (`schema: dsh-kb/index@1`). A failing book does not abort the batch; the error
@@ -77,7 +89,7 @@ Answers must be built from these hits; the tool never invents a citation.
 | `kb.writes-disabled` | Write requested while `allowWrites` is false. |
 | `ingest.manifest-missing` | `.wiki/books.jsonl` absent; run `kb_inventory` with `write` first. |
 | `query.index-missing` | No catalog; run `kb_ingest` first. |
-| `pdf.python-missing` | PyMuPDF-backed extractor cannot find the interpreter. |
+| `pdf.python-missing` | No interpreter with PyMuPDF and the automatic venv bootstrap failed; the message carries the probe/install errors. |
 | `pdf.extract-failed` | Extractor exited non-zero or produced invalid JSON. |
 
 ## Planned (not implemented)

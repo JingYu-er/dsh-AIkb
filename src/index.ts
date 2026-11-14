@@ -1,5 +1,7 @@
 import { existsSync } from 'node:fs';
 import * as nodePath from 'node:path';
+import { ensurePythonEnv } from './adapters/pdf/python-env.js';
+import type { PythonEnvReport } from './adapters/pdf/python-env.js';
 import { createKbDoctorTool } from './tools/kb-doctor.tool.js';
 import { createKbIngestTool } from './tools/kb-ingest.tool.js';
 import { createKbInventoryTool } from './tools/kb-inventory.tool.js';
@@ -13,10 +15,16 @@ export interface KbPluginConfig {
   readonly vaultPath?: string;
   /** Off by default; enabling it only allows inbox/ and .wiki/ to change. */
   readonly allowWrites?: boolean;
-  /** Python interpreter that can import PyMuPDF (default "python"). */
+  /** Base interpreter used to create the private venv (must exist). Default "python". */
   readonly pythonPath?: string;
   /** Extra directory on PYTHONPATH when PyMuPDF is installed outside the interpreter. */
   readonly pythonLibPath?: string;
+  /** Private venv the plugin prepares for itself. Default <workspaceRoot>/.kb/venv. */
+  readonly venvPath?: string;
+  /** Directory the venv is anchored to; defaults to the host working directory. */
+  readonly workspaceRoot?: string;
+  /** pip index for the one-time PyMuPDF install. Default: Tsinghua mirror. */
+  readonly pythonMirror?: string;
 }
 
 interface ToolsRegistry {
@@ -51,13 +59,32 @@ export function resolveVaultRoot(config: KbPluginConfig, explicit?: string, cwd:
 export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
   const allowWrites = config.allowWrites === true;
   const resolveRoot = (explicit?: string): string => resolveVaultRoot(config, explicit);
-  ctx.tools.register(createKbDoctorTool({ allowWrites, resolveRoot }));
+  const workspaceRoot = config.workspaceRoot !== undefined && config.workspaceRoot.trim() !== ''
+    ? nodePath.resolve(config.workspaceRoot.trim())
+    : process.cwd();
+  /** One bootstrap per process: probing is cheap, installing is not. */
+  let pythonEnvOnce: Promise<PythonEnvReport> | undefined;
+  const pythonEnv = (bootstrap: boolean): Promise<PythonEnvReport> => {
+    if (bootstrap && pythonEnvOnce !== undefined) return pythonEnvOnce;
+    const options = {
+      workspaceRoot,
+      pythonPath: config.pythonPath ?? '',
+      venvPath: config.venvPath ?? '',
+      mirrorUrl: config.pythonMirror ?? '',
+      bootstrap,
+    };
+    const pending = ensurePythonEnv(options);
+    if (bootstrap) pythonEnvOnce = pending;
+    return pending;
+  };
+
+  ctx.tools.register(createKbDoctorTool({ allowWrites, resolveRoot, inspectPython: () => pythonEnv(false) }));
   ctx.tools.register(createKbInventoryTool({ allowWrites, resolveRoot }));
   ctx.tools.register(
     createKbIngestTool({
       allowWrites,
       resolveRoot,
-      pythonPath: config.pythonPath ?? 'python',
+      preparePython: () => pythonEnv(true),
       pythonLibPath: config.pythonLibPath ?? '',
     }),
   );

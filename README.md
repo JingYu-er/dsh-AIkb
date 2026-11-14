@@ -24,9 +24,13 @@ Writes are off by default and, when enabled, are confined to `inbox/` and
 ## Requirements
 
 - Node >= 22
-- Python 3.9+ with PyMuPDF (`pip install pymupdf`) for PDF ingest
-  (EPUB/DJVU parsers are not wired yet; `kb_ingest` reports them as errors)
+- A Python 3.9+ interpreter on `PATH` (only to create the private venv). You do
+  **not** need to install PyMuPDF yourself: the first `kb_ingest` creates
+  `<workspaceRoot>/.kb/venv` and installs PyMuPDF into it through a mirror, then
+  reuses it. `kb_doctor` only probes, it never installs.
 - A vault: a directory containing `.obsidian/`
+
+(EPUB/DJVU parsers are not wired yet; `kb_ingest` reports them as errors.)
 
 ## Install (local, development)
 
@@ -49,17 +53,21 @@ Writes are off by default and, when enabled, are confined to `inbox/` and
 
 3. `pnpm install` in the profile, then restart DSH.
 
-If PyMuPDF lives in a non-default location, point the plugin at it via
-`cordis.patch.yml`:
+Configure the machine-specific parts in the profile's `cordis.patch.yml`
+(the vault path has no sane default, so it is never shipped):
 
 ```yaml
-- insert:
-    - id: dsh-kb
-      name: dsh-kb
-      config:
-        allowWrites: false
-        pythonPath: python
-        pythonLibPath: D:/path/to/pylib
+- id: dsh-kb
+  name: dsh-kb
+  config:
+    vaultPath: D:/path/to/MyObsidian
+    workspaceRoot: D:/path/to/workspace   # venv lives in <workspaceRoot>/.kb/venv
+    allowWrites: true                     # required for kb_ingest / kb_inventory write
+    # optional:
+    pythonPath: python                    # base interpreter used to create the venv
+    venvPath: D:/path/to/venv             # override the venv location
+    pythonMirror: https://pypi.tuna.tsinghua.edu.cn/simple
+    pythonLibPath: D:/path/to/pylib       # extra PYTHONPATH for a system PyMuPDF
 ```
 
 ## Usage
