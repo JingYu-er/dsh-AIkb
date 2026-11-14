@@ -13,6 +13,7 @@ import { createKbIngestTool } from './tools/kb-ingest.tool.js';
 import { createKbInventoryTool } from './tools/kb-inventory.tool.js';
 import { createKbLintTool } from './tools/kb-lint.tool.js';
 import { createKbQueryTool } from './tools/kb-query.tool.js';
+import { createKbSuggestLinksTool } from './tools/kb-suggest-links.tool.js';
 
 /** Stable cordis plugin identity. */
 export const name = 'dsh-kb';
@@ -161,6 +162,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     registerTool(ctx, createKbDoctorTool({ allowWrites, resolveRoot, inspectPython: () => pythonEnv(false) }));
     registerTool(ctx, createKbInventoryTool({ allowWrites, resolveRoot }));
     registerTool(ctx, createKbLintTool({ resolveRoot }));
+    registerTool(ctx, createKbSuggestLinksTool({ resolveRoot }));
     registerTool(
       ctx,
       createKbIngestTool({
@@ -197,5 +199,5 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     logBoot(workspaceRoot, 'apply-failed', error instanceof Error ? error.message : String(error));
     throw error;
   }
-  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_ingest kb_query kb_embed');
+  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_suggest_links kb_ingest kb_query kb_embed');
 }

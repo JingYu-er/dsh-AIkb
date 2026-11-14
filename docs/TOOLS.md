@@ -150,31 +150,65 @@ Input: `{ vaultPath?: string }`
 Output: `notes`, `elapsedMs`, `counts` (per rule plus `notes`),
 `findings[]` (`rule`, `severity`, `path`, `detail`).
 
+## kb_suggest_links
+
+Read-only candidate links. Given two notes, it scores how much rare vocabulary
+they share and proposes the pairs worth a `[[link]]`; nothing is written, and it
+never modifies frontmatter or links.
+
+Algorithm: strip frontmatter, fenced code, markdown images, `![[embeds]]` and
+URLs, then tokenise (same CJK bigram + word tokeniser as `kb_query`). Each note
+becomes an idf-weighted term vector (`(1 + ln tf) * idf`); notes are compared by
+cosine over shared terms only (an inverted index keeps it ~300 ms for 500 notes).
+
+A candidate survives when all of these hold:
+
+- cosine >= `minScore` (default `0.2`);
+- the target is not already linked from the source (a `[[name]]` in the body);
+- at least one shared term is rare (df <= max(3, 1.2% of notes)) - datasheet
+  notes that share only section headings like 引脚/单位/说明 are dropped, unless
+  the cosine is >= 0.85 (near-duplicate notes);
+- at most two suggestions per note, one per unordered pair, then the top
+  `limit` (default 40) by confidence.
+
+`why` is built from the strongest shared terms, CJK bigrams merged into words
+(稳 + 压管 -> 稳压管), so it reads like a reason rather than a token dump.
+
+Plugin and template trees are skipped (`copilot/`, `.agents/`, `.claude/`,
+`.wiki/`, `ZtTemplates/`, `Templater/`, `Templates/`, `.trash/`, `zotlit-*`,
+`*.eta.md`), and notes with less than 30 characters of body after stripping are
+ignored (image-only notes have nothing to compare).
+
+Input: `{ note?: string, limit?: number, minScore?: number, vaultPath?: string }`
+
+Output: `notes` (scanned), `suggestions[]` (`from`, `to`, `why`, `confidence`),
+`elapsedMs`.
+
 ## kb_embed
 
-Builds the local vector index that turns \`kb_query\` into hybrid search. Everything
-runs on this machine: the \`multilingual-e5-small\` ONNX export (384 dims) is
-downloaded once to \`<workspaceRoot>/.kb/models/\`, and chunks are embedded with
+Builds the local vector index that turns `kb_query` into hybrid search. Everything
+runs on this machine: the `multilingual-e5-small` ONNX export (384 dims) is
+downloaded once to `<workspaceRoot>/.kb/models/`, and chunks are embedded with
 numpy + onnxruntime. No model API, no tokens.
 
 Incremental by design: a book is re-embedded only when its sidecar count no
 longer matches the catalog's chunk count (re-ingesting changes the count), or
-when \`force\` is set. One Python process loads the model once and streams one
+when `force` is set. One Python process loads the model once and streams one
 JSON line per book, so a failure on one book leaves the others committed.
 
-Vectors live in \`.wiki/index/vectors/<sha256>.vec\` (raw float32, L2-normalised)
-with a \`<sha256>.json\` sidecar (\`model\`, \`dims\`, \`count\`, \`ids\`, \`embeddedAt\`).
-Writes only inside \`.wiki/index/vectors/\`; the venv interpreter is denied writes
-inside the vault, so Python stages into \`<workspaceRoot>/temp/embed/staging\` and
+Vectors live in `.wiki/index/vectors/<sha256>.vec` (raw float32, L2-normalised)
+with a `<sha256>.json` sidecar (`model`, `dims`, `count`, `ids`, `embeddedAt`).
+Writes only inside `.wiki/index/vectors/`; the venv interpreter is denied writes
+inside the vault, so Python stages into `<workspaceRoot>/temp/embed/staging` and
 the plugin moves the finished files in.
 
 Cost on a 16-core box: ~7 chunks/s on 12 threads, so a 23k-chunk vault takes
 about an hour once; query embedding adds ~1–2 s (model load) to a search.
 
-Input: \`{ vaultPath?: string, limit?: number, force?: boolean }\`
+Input: `{ vaultPath?: string, limit?: number, force?: boolean }`
 
-Output: \`books[]\` (\`path\`, \`sha256\`, \`chunks\`, \`seconds\`, \`error\`),
-\`totals\` (\`books\`, \`chunks\`, \`upToDate\`), \`model\`.
+Output: `books[]` (`path`, `sha256`, `chunks`, `seconds`, `error`),
+`totals` (`books`, `chunks`, `upToDate`), `model`.
 
 ## Error codes
 

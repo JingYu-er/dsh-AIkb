@@ -19,6 +19,7 @@ MVP read path is implemented and tested (34 unit tests):
 | `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, device-name scoping, coverage weighting). Optional hybrid: vector hits fill the tail slots. |
 | `kb_embed` | Local e5-small vectors over the chunk index, incremental per book. |
 | `kb_lint` | Read-only note hygiene: broken wikilinks, duplicate titles, orphan concept pages, missing frontmatter/type. |
+| `kb_suggest_links` | Read-only link candidates between notes that share rare terms, with a reason and a confidence. |
 
 Writes are off by default and, when enabled, are confined to `inbox/` and
 `.wiki/`. `vault/` is never modified by this plugin.
@@ -91,6 +92,7 @@ kb_ingest   { limit: 3 }                   # first three books
 kb_embed    { limit: 5 }                   # local vectors over the index (incremental)
 kb_query    { query: "镜像电流源 原理" }     # hits with page + section
 kb_lint                                    # broken links / orphans / frontmatter
+kb_suggest_links { note: "学习/硬件/笔记/结电容.md" }   # candidate [[links]] (read-only)
 ```
 
 ## Retrieval quality
