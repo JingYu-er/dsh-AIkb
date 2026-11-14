@@ -11,7 +11,12 @@
     ".": "./dist/index.js",
     "./package.json": "./package.json"
   },
-  "files": ["dist", "cordis.patch.yml", "README.md", "docs"],
+  "files": ["dist", "scripts", "cordis.patch.yml", "README.md", "LICENSE", "docs"],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

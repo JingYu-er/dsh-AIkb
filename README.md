@@ -1,60 +1,89 @@
 # dsh-kb
 
-An Obsidian-native knowledge base for [DeepSeek Harness](https://github.com/deepseek-ai) (DSH).
+An Obsidian-native knowledge base plugin for DeepSeek Harness.
 
-**Thesis: a compiler, not a retriever.** Generic AI knows the world but not *your* material.
-Ordinary RAG explains a passage and forgets it; this plugin ingests material once and compiles it
-into structured, interlinked, self-updating pages, then answers from that compiled structure with
-a verifiable pointer (path + page + modality + excerpt) back to the source.
+**It is a compiler, not a retriever.** A retriever answers and forgets; a
+compiler turns sources into structured, interlinked pages that get better every
+time you use them. The AI is an indexer, a first-pass filter and a cognitive
+auditor — never the engineer who reads the textbook for you.
 
-> Status: **architecture scaffold**. Domain model, ports and tool contracts are in place; the DSH
-> tool adapter and the ingest/retrieval pipeline are not implemented yet. Nothing here writes to a
-> vault today — the write path is opt-in and unimplemented.
+## Status
 
-## Hard boundaries (non-negotiable)
+MVP read path is implemented and tested (20 unit tests):
 
-- The AI **never** infers what you have mastered. Only explicit markers (`mastery: solid`), an
-  accepted link proposal, or a passed quiz count.
-- The AI **never** inserts wikilinks on its own. It proposes a link plus a one-sentence *why*; you accept.
-- The AI **never** edits the formal area of the vault. Output goes to `inbox/`; promotion is a
-  separate, explicit step.
-- `.obsidian/` is out of scope entirely. No exceptions.
-- Formula semantics, circuit topology and OCR text are **unverified** unless a check proves them.
+| Tool | Purpose |
+| --- | --- |
+| `kb_doctor` | Vault discovery, layout and permission self-check. |
+| `kb_inventory` | Hash-index every binary source into `.wiki/books.jsonl`. |
+| `kb_ingest` | Page-anchored chunking + incremental local index. |
+| `kb_query` | BM25 retrieval with path / page / section provenance. |
 
-## Layout
+Writes are off by default and, when enabled, are confined to `inbox/` and
+`.wiki/`. `vault/` is never modified by this plugin.
 
+## Requirements
+
+- Node >= 22
+- Python 3.9+ with PyMuPDF (`pip install pymupdf`) for PDF ingest
+  (EPUB/DJVU parsers are not wired yet; `kb_ingest` reports them as errors)
+- A vault: a directory containing `.obsidian/`
+
+## Install (local, development)
+
+1. Build:
+
+   ```bash
+   cd dsh-kb
+   npm install --ignore-scripts
+   npm run build
+   ```
+
+2. Register the plugin in your DSH profile (`~/.dsh/profiles/<profile>/package.json`):
+
+   ```jsonc
+   {
+     "dependencies": { "dsh-kb": "link:D:/path/to/dsh-kb" },
+     "dsh": { "profile": { "bundles": [/* ..., */ "dsh-kb"] } }
+   }
+   ```
+
+3. `pnpm install` in the profile, then restart DSH.
+
+If PyMuPDF lives in a non-default location, point the plugin at it via
+`cordis.patch.yml`:
+
+```yaml
+- insert:
+    - id: dsh-kb
+      name: dsh-kb
+      config:
+        allowWrites: false
+        pythonPath: python
+        pythonLibPath: D:/path/to/pylib
 ```
-dsh-kb/
-├── src/
-│   ├── domain/        entities + invariants (no framework, no fs, no DSH)
-│   ├── application/   use cases, one per tool (kb_doctor, kb_query, ...)
-│   ├── infrastructure/ adapters: filesystem vault, index, OCR, embeddings
-│   ├── interfaces/    DSH tool registration, formatting, config wiring
-│   ├── ports.ts       the contracts the domain/application layers depend on
-│   ├── config.ts      vault resolution + budgets + guards
-│   └── shared/        Result, ids
-├── tests/             pure unit tests (no vault required)
-└── docs/              ARCHITECTURE.md, TOOLS.md
+
+## Usage
+
+```text
+kb_doctor                                  # is this vault readable?
+kb_inventory { write: true }               # hash every PDF
+kb_ingest   { limit: 3 }                   # first three books
+kb_query    { query: "镜像电流源 原理" }     # hits with page + section
 ```
 
-## Repository split
+## Design
 
-This folder is its **own git repository**, intentionally excluded from the knowledge-base repository
-that surrounds it (`../` ignores `dsh-kb/` and `temp/`). The vault is data; this is source code.
-They are versioned, backed up and published separately — the vault repository must stay private,
-this one is meant to be open sourced.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the DDD layering, the
+bounded contexts and the generalization contract, and
+[docs/TOOLS.md](docs/TOOLS.md) for the tool contracts and error codes.
 
-## Development
+Hard boundaries, enforced in code rather than in prompts:
 
-```bash
-npm install
-npm run typecheck
-npm test
-```
-
-Scratch work (sample PDFs, generated indexes, throwaway vaults) goes in `../temp/`, which both
-repositories ignore.
+- No inference of what you have mastered — only explicit markers.
+- Links are proposed with a `why`, never written automatically.
+- Sources are referenced (sha256 + locator), never copied into the vault.
+- Formula semantics, circuit topology and OCR output are never claimed correct.
 
 ## License
 
-MIT.
+MIT © 2026 JingYu
