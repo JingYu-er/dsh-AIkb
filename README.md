@@ -16,7 +16,9 @@ MVP read path is implemented and tested (34 unit tests):
 | `kb_doctor` | Vault discovery, layout and permission self-check. |
 | `kb_inventory` | Hash-index every binary source into `.wiki/books.jsonl`. |
 | `kb_ingest` | Page-anchored chunking + incremental local index. |
-| `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, device-name scoping, coverage weighting). |
+| `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, device-name scoping, coverage weighting). Optional hybrid: vector hits fill the tail slots. |
+| `kb_embed` | Local e5-small vectors over the chunk index, incremental per book. |
+| `kb_lint` | Read-only note hygiene: broken wikilinks, duplicate titles, orphan concept pages, missing frontmatter/type. |
 
 Writes are off by default and, when enabled, are confined to `inbox/` and
 `.wiki/`. `vault/` is never modified by this plugin.
@@ -88,6 +90,7 @@ kb_inventory { write: true }               # hash every PDF
 kb_ingest   { limit: 3 }                   # first three books
 kb_embed    { limit: 5 }                   # local vectors over the index (incremental)
 kb_query    { query: "镜像电流源 原理" }     # hits with page + section
+kb_lint                                    # broken links / orphans / frontmatter
 ```
 
 ## Retrieval quality

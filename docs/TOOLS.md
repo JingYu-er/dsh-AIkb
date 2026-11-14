@@ -123,6 +123,33 @@ silently falls back to BM25 instead of failing.
 Every hit carries the note/book path, the 1-based page, and the TOC section.
 Answers must be built from these hits; the tool never invents a citation.
 
+## kb_lint
+
+Read-only hygiene pass over the markdown notes. It never edits a file, never
+creates one, and takes a fraction of a second on a 500-note vault.
+
+Checks (each finding carries rule, severity, path and detail):
+
+- `link.broken` (warn) — a `[[wikilink]]` whose target matches no note
+  filename. Attachment embeds (`![[x.png]]`) are ignored, and links inside fenced
+  code blocks are skipped, because template and skill notes show the syntax as an
+  example rather than as a real link.
+- `title.duplicate` (warn) — two notes share a basename, so Obsidian's
+  `[[name]]` resolution is ambiguous.
+- `concept.orphan` (warn) — a note with `type: concept` has no inbound
+  wikilink; either it belongs in an index or it is a dead end.
+- `frontmatter.missing` (info) — no YAML block at all.
+- `frontmatter.type` (info) — frontmatter without a `type` field.
+
+Plugin and skill folders (`copilot/`, `.agents/`, `.claude/`) are not linted: they
+ship example markdown that is not knowledge. At most 50 findings per rule are
+returned, while `counts` always carries the full totals.
+
+Input: `{ vaultPath?: string }`
+
+Output: `notes`, `elapsedMs`, `counts` (per rule plus `notes`),
+`findings[]` (`rule`, `severity`, `path`, `detail`).
+
 ## kb_embed
 
 Builds the local vector index that turns \`kb_query\` into hybrid search. Everything
