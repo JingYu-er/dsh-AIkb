@@ -68,6 +68,9 @@ Configure the machine-specific parts in the profile's `cordis.patch.yml`
     venvPath: D:/path/to/venv             # override the venv location
     pythonMirror: https://pypi.tuna.tsinghua.edu.cn/simple
     pythonLibPath: D:/path/to/pylib       # extra PYTHONPATH for a system PyMuPDF
+    ocrEnabled: true                      # local OCR for scans (default on)
+    ocrWorkers: 4                         # OCR processes; 4 beat 8 on a 16-core box
+    ocrMaxPages: 40                       # first experiment: only the first N pages
 ```
 
 ## Usage
@@ -126,6 +129,8 @@ Hard boundaries, enforced in code rather than in prompts:
 - Links are proposed with a `why`, never written automatically.
 - Sources are referenced (sha256 + locator), never copied into the vault.
 - Formula semantics, circuit topology and OCR output are never claimed correct.
+- Scanned books are read locally (RapidOCR, no tokens) only when the text layer is
+  too thin; OCR text is approximate and must be checked against the page image.
 
 ## License
 

@@ -37,6 +37,8 @@ export interface IngestOptions {
   readonly paths?: readonly string[];
   readonly force?: boolean;
   readonly chunkOptions?: typeof DEFAULT_CHUNK_OPTIONS;
+  /** Fallback extractor for scans; only consulted when the text layer is too thin. */
+  readonly ocr?: (entry: IngestEntry) => Promise<ExtractedBook | undefined>;
 }
 
 export interface IngestBookReport {
@@ -46,6 +48,8 @@ export interface IngestBookReport {
   readonly chunks: number;
   readonly tokens: number;
   readonly skipped: boolean;
+  /** True when the text came from OCR rather than the PDF text layer. */
+  readonly ocrUsed?: boolean;
   readonly error?: string;
 }
 
@@ -62,6 +66,13 @@ export interface IngestReport {
     readonly venvPath: string;
     readonly bootstrapped: boolean;
   };
+  /** OCR toolchain used for scanned sources; absent when the run stayed on the text layer. */
+  readonly ocr?: {
+    readonly ok: boolean;
+    readonly pythonPath: string;
+    readonly rapidocrVersion: string;
+    readonly installed: boolean;
+  };
   readonly elapsedMs: number;
 }
 
@@ -69,6 +80,19 @@ export const INDEX_ROOT = '.wiki/index';
 export const INDEX_CATALOG_PATH = INDEX_ROOT + '/catalog.json';
 export const INDEX_SCHEMA = 'dsh-kb/index@1';
 export const MANIFEST_PATH = '.wiki/books.jsonl';
+
+function densityOf(book: ExtractedBook): { textChars: number; charsPerPage: number } {
+  const textChars =
+    book.textChars ??
+    book.pages.reduce((sum, page) => sum + page.blocks.reduce((n, block) => n + block.length, 0), 0);
+  return { textChars, charsPerPage: book.pages.length === 0 ? 0 : textChars / book.pages.length };
+}
+
+/** A scan can still carry page numbers, so density decides, not the mere presence of text. */
+function isScan(book: ExtractedBook): boolean {
+  const density = densityOf(book);
+  return density.textChars < MIN_TEXT_CHARS || density.charsPerPage < MIN_CHARS_PER_PAGE;
+}
 
 const LINE_FEED = String.fromCharCode(10);
 
@@ -154,12 +178,21 @@ export async function runIngest(
       continue;
     }
     try {
-      const extracted = await extract(entry);
-      const textChars = extracted.textChars ?? extracted.pages.reduce((sum, page) => sum + page.blocks.reduce((n, block) => n + block.length, 0), 0);
-      const charsPerPage = extracted.pages.length === 0 ? 0 : textChars / extracted.pages.length;
-      if (textChars < MIN_TEXT_CHARS || charsPerPage < MIN_CHARS_PER_PAGE) {
-        // A scan can still carry page numbers, so density decides; drop whatever an earlier
-        // run indexed from the same file so a stale chunk file cannot keep haunting queries.
+      let extracted = await extract(entry);
+      let ocrUsed = false;
+      if (isScan(extracted) && options.ocr !== undefined) {
+        // Rendering every page is expensive, so OCR is a fallback: the text layer gets
+        // first say, and the same density gate then judges the OCR result.
+        const fromOcr = await options.ocr(entry);
+        if (fromOcr !== undefined && !isScan(fromOcr)) {
+          extracted = fromOcr;
+          ocrUsed = true;
+        }
+      }
+      if (isScan(extracted)) {
+        // Drop whatever an earlier run indexed from the same file so a stale chunk file
+        // cannot keep haunting queries.
+        const density = densityOf(extracted);
         if (catalog.sources[entry.sha256] !== undefined) {
           delete catalog.sources[entry.sha256];
           if (fs.remove !== undefined) await fs.remove(chunkPath);
@@ -171,7 +204,7 @@ export async function runIngest(
           chunks: 0,
           tokens: 0,
           skipped: false,
-          error: 'pdf.no-text-layer: ' + textChars + ' extractable characters in ' + extracted.pages.length + ' pages (' + charsPerPage.toFixed(1) + ' chars/page; scanned image PDF, OCR is not implemented yet)',
+          error: 'pdf.no-text-layer: ' + density.textChars + ' extractable characters in ' + extracted.pages.length + ' pages (' + density.charsPerPage.toFixed(1) + ' chars/page; neither the text layer nor OCR produced readable text)',
         });
         continue;
       }
@@ -186,7 +219,15 @@ export async function runIngest(
         tokens,
         ingestedAt: new Date().toISOString(),
       };
-      books.push({ path: entry.path, sha256: entry.sha256, pages: extracted.pages.length, chunks: chunks.length, tokens, skipped: false });
+      books.push({
+        path: entry.path,
+        sha256: entry.sha256,
+        pages: extracted.pages.length,
+        chunks: chunks.length,
+        tokens,
+        skipped: false,
+        ...(ocrUsed ? { ocrUsed: true } : {}),
+      });
     } catch (error) {
       books.push({ path: entry.path, sha256: entry.sha256, pages: 0, chunks: 0, tokens: 0, skipped: false, error: error instanceof Error ? error.message : String(error) });
     }

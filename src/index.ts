@@ -1,5 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import * as nodePath from 'node:path';
+import { ensureOcrEnv } from './adapters/pdf/ocr-env.js';
+import type { OcrEnvReport } from './adapters/pdf/ocr-env.js';
 import { ensurePythonEnv } from './adapters/pdf/python-env.js';
 import type { PythonEnvReport } from './adapters/pdf/python-env.js';
 import { registerTool } from './tools/definition.js';
@@ -33,6 +35,12 @@ export interface KbPluginConfig {
   readonly workspaceRoot?: string;
   /** pip index for the one-time PyMuPDF install. Default: Tsinghua mirror. */
   readonly pythonMirror?: string;
+  /** Local OCR for scanned PDFs. On by default; set false to skip image-only books. */
+  readonly ocrEnabled?: boolean;
+  /** OCR worker processes. Default 4. */
+  readonly ocrWorkers?: number;
+  /** OCR only the first N pages of each scanned book (a cheap first experiment). */
+  readonly ocrMaxPages?: number;
 }
 
 interface ToolsRegistry {
@@ -105,6 +113,22 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     return pending;
   };
 
+  /** RapidOCR is resolved once per process, like PyMuPDF. */
+  let ocrEnvOnce: Promise<OcrEnvReport> | undefined;
+  const ocrEnv = (): Promise<OcrEnvReport> => {
+    if (ocrEnvOnce !== undefined) return ocrEnvOnce;
+    const pending = ensureOcrEnv({
+      workspaceRoot,
+      pythonPath: config.pythonPath ?? '',
+      venvPath: config.venvPath ?? '',
+      mirrorUrl: config.pythonMirror ?? '',
+      bootstrap: true,
+    });
+    ocrEnvOnce = pending;
+    return pending;
+  };
+  const ocrEnabled = config.ocrEnabled !== false;
+
   try {
     registerTool(ctx, createKbDoctorTool({ allowWrites, resolveRoot, inspectPython: () => pythonEnv(false) }));
     registerTool(ctx, createKbInventoryTool({ allowWrites, resolveRoot }));
@@ -115,6 +139,10 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
         resolveRoot,
         preparePython: () => pythonEnv(true),
         pythonLibPath: config.pythonLibPath ?? '',
+        workspaceRoot,
+        ocrWorkers: config.ocrWorkers !== undefined && config.ocrWorkers > 0 ? config.ocrWorkers : 4,
+        ...(config.ocrEnabled === false ? {} : { prepareOcr: () => ocrEnv() }),
+        ...(config.ocrMaxPages !== undefined ? { ocrMaxPages: config.ocrMaxPages } : {}),
       }),
     );
     registerTool(ctx, createKbQueryTool({ resolveRoot }));

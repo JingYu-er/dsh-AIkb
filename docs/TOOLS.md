@@ -60,10 +60,21 @@ characters per page (a scan often carries page numbers only, so total characters
 alone would let it through). A rejected source also has its previously indexed
 chunks removed, so a stale entry cannot keep haunting queries.
 
+Scanned books fall back to local OCR: when the text layer fails that density
+gate, the source is rendered at 200 dpi and read by RapidOCR (ONNX, on this
+machine), which costs CPU time but no tokens. Paragraphs are rebuilt in reading
+order, including a two-column check; pages are journaled per content hash in
+`<workspaceRoot>/temp/ocr/<sha256>.jsonl`, so an interrupted run resumes instead
+of restarting. `ocrMaxPages` (plugin config) caps a first experiment, and
+`ocrWorkers` sets the process count. OCR text is approximate: formulas and
+subscripts degrade, so a hit from a scanned book is cited the same way but
+should be verified against the page image.
+
 Output: `ok`, `books[]` (`path`, `sha256`, `pages`, `chunks`, `tokens`,
-`status`, `error?`), `totals`, `indexPath`, `elapsedMs`, and `python`
-(`pythonPath`, `source`, `venvPath`, `bootstrapped`) so the caller can see which
-interpreter produced the text.
+`status`, `ocrUsed?`, `error?`), `totals`, `indexPath`, `elapsedMs`, `python`
+(`pythonPath`, `source`, `venvPath`, `bootstrapped`) and, when OCR was resolved,
+`ocr` (`pythonPath`, `rapidocrVersion`, `installed`), so the caller can see which
+interpreter produced the text and whether it was OCR.
 
 On first use it prepares its own environment: probes an explicit `pythonPath`, the
 private venv, then `python`; if none can import PyMuPDF it creates
