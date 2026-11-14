@@ -10,6 +10,13 @@ import { createKbQueryTool } from './tools/kb-query.tool.js';
 /** Stable cordis plugin identity. */
 export const name = 'dsh-kb';
 
+/**
+ * Cordis services this plugin needs before apply() runs. Declaring "tools" is what
+ * makes ctx.tools exist: a plugin that reads it without injecting it is applied too
+ * early and throws, and the whole bundle silently disappears from the tool list.
+ */
+export const inject = ['tools'];
+
 export interface KbPluginConfig {
   /** Absolute path of the Obsidian vault. Unset: discover from the working directory. */
   readonly vaultPath?: string;
@@ -57,6 +64,9 @@ export function resolveVaultRoot(config: KbPluginConfig, explicit?: string, cwd:
 }
 
 export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
+  if (ctx.tools === undefined || typeof ctx.tools.register !== 'function') {
+    throw new Error('dsh-kb: the tools service is unavailable; declare inject = ["tools"] (see src/index.ts)');
+  }
   const allowWrites = config.allowWrites === true;
   const resolveRoot = (explicit?: string): string => resolveVaultRoot(config, explicit);
   const workspaceRoot = config.workspaceRoot !== undefined && config.workspaceRoot.trim() !== ''
