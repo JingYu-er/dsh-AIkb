@@ -53,7 +53,33 @@ function splitLongBlock(block: string, maxTokens: number): string[] {
     buffer += sentence;
   }
   if (buffer.trim() !== '') parts.push(buffer);
+  return parts.flatMap((part) => (approxTokens(part) > maxTokens ? hardSplit(part, maxTokens) : [part]));
+}
+
+/**
+ * Last-resort split for blocks without sentence punctuation (table rows, formulas):
+ * walk characters until the token budget is reached, so no chunk can exceed maxTokens.
+ */
+function hardSplit(text: string, maxTokens: number): string[] {
+  const parts: string[] = [];
+  let current = '';
+  let cost = 0;
+  for (const char of text) {
+    const unit = isCjkCode(char.codePointAt(0) ?? 0) ? 1 : 0.25;
+    if (cost + unit > maxTokens && current !== '') {
+      parts.push(current);
+      current = '';
+      cost = 0;
+    }
+    current += char;
+    cost += unit;
+  }
+  if (current !== '') parts.push(current);
   return parts;
+}
+
+function isCjkCode(code: number): boolean {
+  return (code >= 0x3400 && code <= 0x9fff) || (code >= 0x3040 && code <= 0x30ff) || (code >= 0xac00 && code <= 0xd7af);
 }
 
 /**

@@ -13,6 +13,7 @@ export interface KbIngestArgs {
   readonly vaultPath?: string;
   readonly limit?: number;
   readonly pathPrefix?: string;
+  readonly paths?: readonly string[];
   readonly force?: boolean;
 }
 
@@ -106,6 +107,7 @@ export function createKbIngestTool(deps: KbIngestDeps) {
       vaultPath: { type: 'string', description: 'Absolute vault path. Defaults to the plugin config, then vault discovery.' },
       limit: { type: 'integer', description: 'Ingest at most this many sources from the manifest.' },
       pathPrefix: { type: 'string', description: 'Only sources whose vault-relative path starts with this prefix.' },
+      paths: { type: 'array', description: 'Exact vault-relative source paths to ingest.', items: { type: 'string' } },
       force: { type: 'boolean', description: 'Re-extract even when a chunk file for the same content hash exists.' },
     },
     output: { schema: OUTPUT_SCHEMA, render: (_args, report) => [{ type: 'text', text: renderReport(report) }] },
@@ -135,7 +137,7 @@ export function createKbIngestTool(deps: KbIngestDeps) {
             pythonPath: python.pythonPath,
             pythonLibPath: deps.pythonLibPath,
           }),
-          { limit: args.limit, pathPrefix: args.pathPrefix, force: args.force },
+          { limit: args.limit, pathPrefix: args.pathPrefix, paths: args.paths, force: args.force },
         );
         return {
           ...report,

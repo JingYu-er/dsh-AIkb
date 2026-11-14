@@ -46,7 +46,12 @@ def main() -> int:
                 continue
             blocks.append(text)
         pages.append({"page": index + 1, "width": rect.width, "height": rect.height, "blocks": blocks})
-    json.dump({"pages": pages, "toc": toc, "pageCount": document.page_count}, sys.stdout, ensure_ascii=False)
+    text_chars = sum(len(block) for page in pages for block in page["blocks"])
+    json.dump(
+        {"pages": pages, "toc": toc, "pageCount": document.page_count, "textChars": text_chars},
+        sys.stdout,
+        ensure_ascii=False,
+    )
     return 0
 
 

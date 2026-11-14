@@ -51,7 +51,12 @@ Parse each inventoried source into page-anchored chunks and build the local
 index. Incremental by content hash: a book whose `<sha256>.jsonl` already
 exists is skipped unless `force` is set.
 
-Input: `{ vaultPath?: string, limit?: number, pathPrefix?: string, force?: boolean }`
+Input: `{ vaultPath?: string, limit?: number, pathPrefix?: string, paths?: string[], force?: boolean }`
+
+`paths` names exact inventory entries (relative to the vault) and wins over
+`pathPrefix`; `limit` still caps the batch. A source with fewer than 200
+extractable characters is rejected as `pdf.no-text-layer` instead of writing an
+empty chunk file, so scanned books are visible in the report rather than silent.
 
 Output: `ok`, `books[]` (`path`, `sha256`, `pages`, `chunks`, `tokens`,
 `status`, `error?`), `totals`, `indexPath`, `elapsedMs`, and `python`
@@ -69,6 +74,14 @@ is recorded per book.
 ## kb_query
 
 BM25 search over the local chunk index, returning provenance for every hit.
+
+The index is language-mixed (Chinese notes next to English manuals), so the
+tokenizer emits CJK bigrams plus lowercased Latin words and drops question
+filler ("什么", "原理", "工作"). A small domain glossary expands Chinese terms
+into their English equivalents before scoring ("波特率" adds "baud rate"), the
+BM25 score is scaled by query coverage so a page matching half the question
+cannot outrank one matching all of it, and the TOC section is weighted above
+body text.
 
 Input: `{ query: string, topK?: number, vaultPath?: string }`
 

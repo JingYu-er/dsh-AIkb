@@ -16,7 +16,7 @@ MVP read path is implemented and tested (20 unit tests):
 | `kb_doctor` | Vault discovery, layout and permission self-check. |
 | `kb_inventory` | Hash-index every binary source into `.wiki/books.jsonl`. |
 | `kb_ingest` | Page-anchored chunking + incremental local index. |
-| `kb_query` | BM25 retrieval with path / page / section provenance. |
+| `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, coverage weighting). |
 
 Writes are off by default and, when enabled, are confined to `inbox/` and
 `.wiki/`. `vault/` is never modified by this plugin.

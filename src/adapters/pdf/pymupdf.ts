@@ -7,6 +7,8 @@ export interface PdfExtraction {
   readonly pages: readonly PageText[];
   readonly toc: readonly TocEntry[];
   readonly pageCount: number;
+  /** Total extracted characters; 0 means the pages carry no text layer (a scanned book). */
+  readonly textChars: number;
 }
 
 export interface PdfExtractOptions {
@@ -23,6 +25,7 @@ interface RawExtraction {
   readonly pages: readonly { page: number; width: number; height: number; blocks: readonly string[] }[];
   readonly toc: readonly (readonly [number, string, number])[];
   readonly pageCount: number;
+  readonly textChars?: number;
 }
 
 function run(command: string, args: readonly string[], env: NodeJS.ProcessEnv, timeoutMs: number): Promise<{ code: number; stdout: Buffer; stderr: string }> {
@@ -69,5 +72,6 @@ export async function extractPdf(pdfPath: string, options: PdfExtractOptions): P
     throw new DomainError('pdf.extract-invalid-json', 'extractor did not return JSON: ' + result.stdout.toString('utf8').slice(0, 300));
   }
   const toc: TocEntry[] = raw.toc.map((entry) => ({ level: entry[0], title: entry[1], page: entry[2] }));
-  return { pages: raw.pages, toc, pageCount: raw.pageCount };
+  const textChars = raw.textChars ?? raw.pages.reduce((sum, page) => sum + page.blocks.reduce((n, block) => n + block.length, 0), 0);
+  return { pages: raw.pages, toc, pageCount: raw.pageCount, textChars };
 }

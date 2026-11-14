@@ -1,5 +1,6 @@
 import { createBm25 } from '../domain/bm25.js';
 import type { Bm25Document } from '../domain/bm25.js';
+import { expandQuery } from '../domain/glossary.js';
 import { chunkFileOf, INDEX_CATALOG_PATH } from './kb-ingest.js';
 
 export interface QueryFs {
@@ -42,6 +43,14 @@ interface StoredChunk {
 
 const EXCERPT_LENGTH = 240;
 
+/** Book name + heading are searchable too: a question often names the device or chapter. */
+function documentTextOf(path: string, chunk: StoredChunk): string {
+  const book = (path.split('/').pop() ?? '').replace(/\.pdf$/i, '');
+  const section = chunk.section ?? '';
+  // The heading is repeated so a chapter title can outrank a passing mention deeper in another chapter.
+  return [book, section, section, chunk.text].filter((part) => part !== '').join(' ');
+}
+
 export function emptyQueryReport(vaultRoot: string, queryText: string, error: unknown): QueryReport {
   const message = error instanceof Error ? error.message : String(error);
   const code = error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string'
@@ -66,12 +75,14 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8): Promis
     for (const line of (await fs.readText(relPath)).split(/\r?\n/)) {
       if (line.trim() === '') continue;
       const chunk = JSON.parse(line) as StoredChunk;
-      documents.push({ id: chunk.id, text: chunk.text });
+      documents.push({ id: chunk.id, text: documentTextOf(source.path, chunk) });
       chunksById.set(chunk.id, { chunk, path: source.path });
     }
   }
   const index = createBm25(documents);
-  const hits: QueryHit[] = index.search(queryText, topK).map((hit) => {
+  const extra = expandQuery(queryText);
+  const searchText = extra.length === 0 ? queryText : queryText + ' ' + extra.join(' ');
+  const hits: QueryHit[] = index.search(searchText, topK).map((hit) => {
     const stored = chunksById.get(hit.id);
     const base: QueryHit = {
       path: stored?.path ?? '',

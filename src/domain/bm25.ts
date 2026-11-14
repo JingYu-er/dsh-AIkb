@@ -60,13 +60,18 @@ export function createBm25(documents: readonly Bm25Document[], options: Bm25Opti
         const frequencies = new Map<string, number>();
         for (const token of tokens) frequencies.set(token, (frequencies.get(token) ?? 0) + 1);
         let score = 0;
+        let matched = 0;
         for (const token of queryTokens) {
           const frequency = frequencies.get(token);
           if (frequency === undefined) continue;
+          matched += 1;
           const weight = idf.get(token) ?? 0;
           const denominator = frequency + k1 * (1 - b + b * (tokens.length / (averageLength || 1)));
           score += weight * ((frequency * (k1 + 1)) / denominator);
         }
+        // A chunk that matches half the question should not outrank one that covers all of it.
+        const coverage = matched / queryTokens.length;
+        score *= 0.4 + 0.6 * coverage;
         if (score > 0) hits.push({ id: documents[index]?.id ?? '', score });
       }
       hits.sort((left, right) => right.score - left.score);
