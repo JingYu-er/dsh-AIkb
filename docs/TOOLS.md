@@ -71,7 +71,9 @@ fails the bundled v3 graph runs instead, so OCR never blocks an ingest. Paragrap
 order, including a two-column check; pages are journaled per content hash in
 `<workspaceRoot>/temp/ocr/<sha256>.jsonl`, so an interrupted run resumes instead
 of restarting. `ocrMaxPages` (plugin config) caps a first experiment, and
-`ocrWorkers` sets the process count. OCR text is approximate: formulas and
+`ocrWorkers` sets the process count; the script caps ONNX Runtime threads per
+worker (`--threads`) so N workers share the cores instead of each taking all
+of them — 4 workers x 4 threads is the fastest split measured here. OCR text is approximate: formulas and
 subscripts degrade, so a hit from a scanned book is cited the same way but
 should be verified against the page image.
 

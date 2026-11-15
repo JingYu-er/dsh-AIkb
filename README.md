@@ -301,7 +301,23 @@ Known gaps and measured negative results:
   does read the scans better — 放太→放大, 性熊→性能, 王程→工程 — while retrieval
   stays flat (zh2 page@5 9/12, MRR 0.575), so v4 is now the default graph: one
   10.8 MB ONNX file fetched on first OCR use, with RapidOCR's bundled v3 graph
-  as the fallback when that download fails.
+  as the fallback when that download fails. The full re-OCR of all 1,434 pages
+  (3.6 h at 4 workers x 4 ORT threads; `--threads` caps each session so the
+  workers stop fighting over cores) ended with the same numbers — the gain is
+  accurate citation text, not a different rank order.
+- Figure captions as their own chunks do **not** help. Injecting 1,308
+  captions (55.9 K tokens) into a variant index left the figure bench
+  unchanged (page@1 5/10, page@3 8/10, MRR 0.613 → 0.617) and zh2 untouched:
+  the captions already sit in the page text, so the duplicate chunk only adds
+  index size.
+- Rerank earns its latency on the larger set: bge-reranker-base takes the
+  26-question zh set from page@5 11/26 to 15/26 and MRR 0.20 → 0.30 (+1.2 s per
+  query), while zh2 moves page@1 6 → 7 but page@5 9 → 8 and MRR 0.57 → 0.60
+  (+1.3 s). The shipped local config enables it; the code default stays off so
+  other deployments opt in.
+- Fusing an alternative phrasing (`queries: [...]`) hurt here: zh2 MRR
+  0.57 → 0.43, because the paraphrases in the set are weaker than the original.
+  Use it per call for known-good synonyms, never as a default.
 - A heavier layout extractor (MinerU / Docling) is **not** worth its footprint:
   on the 12-question set's answer pages, 11/12 chunks already contain every
   answer term, and BM25 is insensitive to formula and table layout — the

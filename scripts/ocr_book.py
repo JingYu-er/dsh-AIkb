@@ -21,9 +21,24 @@ import numpy as np
 _engine = None
 
 
-def _init_worker(rec_model='', det_model=''):
+def _init_worker(rec_model='', det_model='', threads=0):
     global _engine
     from rapidocr_onnxruntime import RapidOCR
+
+    if threads > 0:
+        # ONNX Runtime gives every session all physical cores by default, so N workers
+        # oversubscribe the machine instead of running in parallel. Cap each session.
+        from rapidocr_onnxruntime import utils as _utils
+
+        _real = _utils.SessionOptions
+
+        class _CappedOptions(_real):
+            def __init__(self):
+                super().__init__()
+                self.intra_op_num_threads = threads
+                self.inter_op_num_threads = 1
+
+        _utils.SessionOptions = _CappedOptions
 
     kwargs = {}
     if rec_model:
@@ -156,6 +171,7 @@ def main():
     parser.add_argument('--dpi', type=int, default=200)
     parser.add_argument('--rec-model', default='', help='alternative recognizer ONNX graph (PP-OCRv4)')
     parser.add_argument('--det-model', default='', help='alternative detector ONNX graph')
+    parser.add_argument('--threads', type=int, default=0, help='ORT threads per worker; 0 = library default')
     parser.add_argument('--progress-every', type=int, default=20)
     options = parser.parse_args()
 
@@ -169,7 +185,7 @@ def main():
     print(json.dumps({
         'event': 'start', 'pages': total, 'first': first, 'last': last,
         'todo': len(pending), 'resumed': len(done), 'workers': options.workers,
-        'rec_model': options.rec_model, 'det_model': options.det_model,
+        'rec_model': options.rec_model, 'det_model': options.det_model, 'threads': options.threads,
     }), flush=True)
     if not pending:
         print(json.dumps({'event': 'done', 'pages': last - first + 1, 'ocr': len(done)}), flush=True)
@@ -178,14 +194,14 @@ def main():
     tasks = [(options.pdf, page - 1, options.dpi) for page in pending]
     written = 0
     if options.workers <= 1:
-        _init_worker(options.rec_model, options.det_model)
+        _init_worker(options.rec_model, options.det_model, options.threads)
         results = map(_ocr_page, tasks)
     else:
         import multiprocessing as mp
 
         # Windows spawns workers, so the model paths must travel through initargs.
         pool = mp.Pool(processes=options.workers, initializer=_init_worker,
-                       initargs=(options.rec_model, options.det_model))
+                       initargs=(options.rec_model, options.det_model, options.threads))
         results = pool.imap_unordered(_ocr_page, tasks, chunksize=1)
 
     for page, text in results:
