@@ -150,13 +150,20 @@ best BM25 candidates through a local **bge-reranker-base** cross-encoder, which
 scores each (query, passage) pair jointly and reorders the list. This attacks the
 dominant failure — the right chapter but a page 5–30 off — because a passage that
 merely repeats the words scores lower than the passage that answers them.
-Vector hits are deliberately left out of the candidate pool: on the 26-question
-set adding them dropped MRR from 0.30 to 0.19, since a drifted vector page
-displaces a lexically exact one. The cross-encoder is tuned for Chinese
-questions: on 17 English textbook questions plain BM25 already scored page@1
-13/17 and MRR 0.85, while reranking fell to 8/17 and 0.60 (it collapses a
-multi-page discussion onto one page), so it is opt-in per query rather than a
-global default. Passages are truncated to 128 tokens (a pair
+The final score keeps 30% of the normalised BM25 rank (`rerankBlend: 0.3`, the
+default; pass `rerankBlend: 0..1` to override): a pure cross-encoder sort scores
+13/26 at `page@5` and MRR 0.30 on the 26-question set, while the mix reaches
+15/26 and MRR 0.29 — the cross-encoder alone collapses a multi-page discussion
+onto one page, and the lexical half keeps the neighbouring pages alive. Over the
+38 Chinese questions the defaults hold 23/38 (`page@5`) against 21/38 pure and
+20/38 without reranking. Vector hits are deliberately left out of the
+candidate pool: on the 26-question set adding them dropped MRR from 0.30 to
+0.19, since a drifted vector page displaces a lexically exact one. The
+cross-encoder is tuned for Chinese questions: on 17 English textbook questions
+plain BM25 already scored `page@1` 13/17 and MRR 0.85, while the blended rerank
+reaches 12/17 and 0.78 (page@5 15/17 vs 16/17) — better than the pure sort
+(8/17, 0.60) but still below no rerank, so it remains opt-in per query rather
+than a global default. Passages are truncated to 128 tokens (a pair
 costs ~9 ms there vs ~190 ms at 512) and the Python worker stays alive with the
 model loaded, so a warm rerank adds ~1.5–2 s (the first one in a process pays
 ~2 s more to load 279 MB). Any failure (model missing, process error, score
@@ -195,7 +202,7 @@ lose (17-question set: page@1 13/17 → 10/17, page@5 16/17 → 13/17, MRR 0.85 
 English query is enough. Blank and duplicate phrasings collapse back to the
 single-query path (and `searched.queries` is then absent).
 
-Input: `{ query: string, queries?: string[], topK?: number, expand?: "none" | "page" | "section", maxContextChars?: number, rerank?: boolean, vaultPath?: string }`
+Input: `{ query: string, queries?: string[], topK?: number, expand?: "none" | "page" | "section", maxContextChars?: number, rerank?: boolean, rerankBlend?: number, vaultPath?: string }`
 
 Output: `hits[]` (`path`, `page`, `pageEnd?`, `section?`, `score`, `excerpt`,
 `context?`), `searched` (`sources`, `chunks`, `vectors` when hybrid, `families`

@@ -152,15 +152,20 @@ reproduces the rows below, with `--multi`, `--rerank`, `--mode hybrid` and
 | Tuned (15) | 6/15 | 7/15 | 12/15 | 7/15 | 15/15 | 0.20 |
 | Held out (11) | 5/11 | 6/11 | 8/11 | 5/11 | 11/11 | 0.21 |
 | All (26) | 11/26 (42%) | 13/26 | 20/26 (77%) | 12/26 | 26/26 | 0.20 |
-| All + rerank | 12/26 (46%) | 14/26 | 19/26 | 14/26 | 26/26 | 0.30 |
+| All + rerank | 15/26 (58%) | 18/26 | 21/26 | 16/26 | 26/26 | 0.29 |
 | All + fused | 14/26 (54%) | 16/26 | 21/26 | 14/26 | 26/26 | 0.34 |
 
-The rerank row is `rerank: true` on top of plain BM25 (`page@1` goes 2/26 →
-5/26 and `page@8` 12/26 → 14/26; it also beats hybrid without rerank). It costs
-~2.4 s per warm query, which is why it stays off by default. Reranking hybrid
-results is worse than reranking BM25 alone (MRR 0.19 vs 0.30), and truncating
-pairs at 512 instead of 128 took 31 s/query for MRR 0.16 — both variants are
-disabled on purpose.
+The rerank row is `rerank: true` on top of plain BM25 and keeps 30% of the
+lexical rank in the final score (`rerankBlend: 0.3`, the default): `page@5`
+11/26 → 15/26, `page@8` 12/26 → 16/26, MRR 0.20 → 0.29 (`page@1` 4/26). A pure
+cross-encoder sort (blend 0) scored 13/26 and MRR 0.30: mixing the two buys two
+page hits because the cross-encoder otherwise collapses a multi-page discussion
+onto the single page it likes best. On the 38 Chinese questions the same setting
+keeps 23/38 at `page@5`, versus 21/38 for a pure sort and 20/38 without rerank.
+It costs ~2.4 s per warm query, which is why it stays off by default. Reranking
+hybrid results is worse than reranking BM25 alone (MRR 0.19 vs 0.30), and
+truncating pairs at 512 instead of 128 took 31 s/query for MRR 0.16 — both
+variants are disabled on purpose.
 
 The fused row is the same query plus its English translation passed as
 `queries: [...]` (2–6 phrasings, one BM25 ranking each, fused by reciprocal
@@ -230,14 +235,16 @@ chunks, 17 questions whose truth pages were verified against the PDF text layer.
 | Set | page@1 | page@5 | near@5 | book@5 | MRR |
 | --- | --- | --- | --- | --- | --- |
 | BM25 (17) | 13/17 | 16/17 | 17/17 | 17/17 | 0.85 |
-| BM25 + rerank | 8/17 | 13/17 | 15/17 | 17/17 | 0.60 |
+| BM25 + rerank | 12/17 | 15/17 | 16/17 | 17/17 | 0.78 |
 
 English textbook prose repeats the query terms, so lexical retrieval already lands
 the right page; the cross-encoder then collapses a discussion that spans several
 pages onto the single page it scores highest (Norton → the next section,
 common-emitter → feedback) and loses page hits. Rank fusion loses for the same
 reason: the English keyword-style second phrasing pulls the list toward pages
-that merely list the terms (page@5 16/17 → 13/17). Keep `rerank: true` and
+that merely list the terms (page@5 16/17 → 13/17). The 30% lexical mix softens
+reranking (8/17 → 12/17 at `page@1`) but still ends below plain BM25
+(page@5 15/17 vs 16/17, MRR 0.78 vs 0.85). Keep `rerank: true` and
 `queries: [...]` for Chinese questions with vocabulary drift, not for English
 ones: at 512 tokens rerank also lost page hits, so this is not a truncation
 artifact.

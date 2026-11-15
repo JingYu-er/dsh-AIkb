@@ -21,6 +21,8 @@ export interface KbQueryArgs {
   readonly maxContextChars?: number;
   /** Reorder candidates with the local cross-encoder (default from config; off unless provisioned). */
   readonly rerank?: boolean;
+  /** 0..1 weight of the lexical rank in the reranked score (default 0.3). */
+  readonly rerankBlend?: number;
   /** Extra phrasings of the same question; each is searched on its own and the lists are fused by rank. */
   readonly queries?: readonly string[];
 }
@@ -201,6 +203,10 @@ export function createKbQueryTool(deps: KbQueryDeps) {
         type: 'boolean',
         description: 'Reorder the candidate pool with the local cross-encoder (bge-reranker-base). Slower (~1-3 s) but fixes page drift. Defaults to the plugin config.',
       },
+      rerankBlend: {
+        type: 'number',
+        description: 'How much of the lexical rank to keep in the reranked score, 0..1 (default 0.3). Raise it when the cross-encoder collapses a multi-page topic onto one page; 0 is a pure cross-encoder sort.',
+      },
       queries: {
         type: 'array',
         items: { type: 'string' },
@@ -243,6 +249,7 @@ export function createKbQueryTool(deps: KbQueryDeps) {
           ...(args.expand === undefined ? {} : { expand: args.expand }),
           ...(args.maxContextChars === undefined ? {} : { maxContextChars: args.maxContextChars }),
           ...(rerank === undefined ? {} : { rerank }),
+          ...(args.rerankBlend === undefined ? {} : { rerankBlend: args.rerankBlend }),
           ...(extraQueries.length === 0 ? {} : { queries: extraQueries }),
         };
         // Reranking supersedes the vector tail slots: the cross-encoder compares the query with each

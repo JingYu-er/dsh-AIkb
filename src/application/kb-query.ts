@@ -52,6 +52,11 @@ export interface QueryOptions {
   readonly rerank?: (documents: readonly string[]) => Promise<readonly number[] | undefined>;
   /** How many BM25 hits enter the reranker (vector hits are added on top). */
   readonly rerankPool?: number;
+  /**
+   * 0 = trust the cross-encoder order, 1 = keep the BM25 order. A middle value mixes the normalised
+   * BM25 score into the rerank score, so an exact lexical page is not displaced by a fluent one.
+   */
+  readonly rerankBlend?: number;
 }
 
 export interface QueryHit {
@@ -142,6 +147,12 @@ const DEFAULT_FAMILY_CAP = 3;
 const DEFAULT_CONTEXT_CHARS = 3000;
 const CHAPTER_POOL = 24;
 const DEFAULT_RERANK_POOL = 40;
+/**
+ * Weight of the lexical rank in the reranked score. Measured on the 38 Chinese questions: pure
+ * cross-encoder ordering (0) kept 21/38 page@5, 0.3 kept 23/38 with MRR unchanged (0.39), and 0.5
+ * or more drifted back down. English does not need reranking at all, so this only tunes drift.
+ */
+const DEFAULT_RERANK_BLEND = 0.3;
 const RRF_K = 60;
 
 /** One built index per vault; rebuilt when the catalog changes. 30 MB of tokens is worth keeping. */
@@ -475,9 +486,19 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     // (measured: hybrid + rerank dropped MRR from 0.30 to 0.19 on the 26-question set).
     const documents = candidates.map((id) => snapshot.byId.get(id)?.chunk.text ?? '');
     const scores = await rerank(documents);
+    const blend = Math.max(0, Math.min(1, options.rerankBlend ?? DEFAULT_RERANK_BLEND));
     if (scores !== undefined && scores.length === candidates.length) {
+      const lexical = new Map<string, number>();
+      for (const hit of (fused ?? ranked).slice(0, pool)) lexical.set(hit.id, hit.score);
+      let bestLexical = 0;
+      for (const value of lexical.values()) bestLexical = Math.max(bestLexical, value);
       order = candidates
-        .map((id, index) => ({ id, score: scores[index] ?? 0 }))
+        .map((id, index) => {
+          const rerankScore = scores[index] ?? 0;
+          if (blend === 0 || bestLexical <= 0) return { id, score: rerankScore };
+          const lexicalScore = (lexical.get(id) ?? 0) / bestLexical;
+          return { id, score: (1 - blend) * rerankScore + blend * lexicalScore };
+        })
         .sort((left, right) => right.score - left.score);
       reranked = true;
     }
