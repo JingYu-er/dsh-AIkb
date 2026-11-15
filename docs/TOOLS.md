@@ -167,7 +167,9 @@ Checks (each finding carries rule, severity, path and detail):
 - `frontmatter.type` (info) — frontmatter without a `type` field.
 
 Plugin and skill folders (`copilot/`, `.agents/`, `.claude/`) are not linted: they
-ship example markdown that is not knowledge. At most 50 findings per rule are
+ship example markdown that is not knowledge. `inbox/_compiled/` is skipped too:
+those files are machine copies of inbox drafts, and the draft itself is still
+linted, so counting both doubles every finding. At most 50 findings per rule are
 returned, while `counts` always carries the full totals.
 
 Input: `{ vaultPath?: string }`
@@ -185,14 +187,18 @@ For each draft (`inbox/**/*.md`; hidden folders and `inbox/_compiled/` are
 skipped):
 
 1. resolve `title` — existing frontmatter, else the first `# heading`, else the
-   filename (a leading `~` from Obsidian's sync-conflict suffix is dropped);
+   filename (a leading `~` from Obsidian's sync-conflict suffix, and a leading
+   `YYYY-MM-DD ` date prefix, are dropped);
 2. ensure `type` — an existing valid `type`/`kind` is kept; otherwise it writes
    `type: thought` and reports `typeInferred: true`, because a note must declare
    its type (kind is never inferred from prose) before lint or promotion accepts
    it;
 3. lift provenance — `来源: path#12`, `source: path p.12` and
    `[x](y.pdf#page=7)` become a deduplicated `sources:` list; `[[wikilinks]]`
-   are collected into the report only, this tool never adds links;
+   are collected into the report only, this tool never adds links. Reference
+   lines are read to the end of the line, so file names may contain spaces and
+   parentheses (`…（第五版）高清版- 清华大学…pdf#page=473`), and the page marker
+   (`#page=7`, `第7页`, `p.7`) is normalised to `#7`;
 4. normalise the body — one H1 at the top, blank-line runs collapsed outside
    fenced code, unknown frontmatter keys preserved in place.
 
@@ -252,7 +258,10 @@ A candidate survives when all of these hold:
   notes that share only section headings like 引脚/单位/说明 are dropped, unless
   the cosine is >= 0.85 (near-duplicate notes);
 - at most two suggestions per note, one per unordered pair, then the top
-  `limit` (default 40) by confidence.
+  `limit` (default 40) by confidence;
+- compiled copies (`inbox/_compiled/`) are not scanned, and a draft is never
+  paired with its own promoted copy (same basename, one side inside `inbox/`) —
+  that pair is one note in two stages, not two notes to link.
 
 `why` is built from the strongest shared terms, CJK bigrams merged into words
 (稳 + 压管 -> 稳压管), so it reads like a reason rather than a token dump.

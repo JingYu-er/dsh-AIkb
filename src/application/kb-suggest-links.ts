@@ -27,6 +27,8 @@ export interface SuggestReport {
 }
 
 const SKIP_PREFIX = /^(copilot|\.agents|\.claude|\.wiki)\//i;
+/** Compiled drafts are copies of inbox drafts; suggesting links between the two is noise. */
+const COMPILED_PREFIX = /^inbox\/_compiled\//i;
 /** Templating trees (Zotlit's ZtTemplates, .trash) are code, not notes. */
 const SKIP_PATH = /(^|\/)(ZtTemplates|Templater|Templates|\.trash)\//i;
 const TEMPLATE_NAME = /\.(eta|template)\.md$|^zotlit-/i;
@@ -108,6 +110,7 @@ export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { 
     (entry) =>
       /\.md$/i.test(entry.relPath) &&
       !SKIP_PREFIX.test(entry.relPath) &&
+      !COMPILED_PREFIX.test(entry.relPath) &&
       !SKIP_PATH.test(entry.relPath) &&
       !TEMPLATE_NAME.test(basenameOf(entry.relPath)),
   );
@@ -182,6 +185,9 @@ export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { 
       const other = docs[candidate.target];
       if (other === undefined) continue;
       if (doc.links.has(other.name.toLowerCase())) continue;
+      // A draft and its promoted copy keep the same file name; they are one note in
+      // two stages, so suggesting either to the other is noise.
+      if (other.name.toLowerCase() === doc.name.toLowerCase() && /^inbox\//i.test(doc.path) !== /^inbox\//i.test(other.path)) continue;
       const shared = [...doc.weights.keys()]
         .filter((term) => other.weights.has(term))
         .sort((left, right) => (doc.weights.get(right) ?? 0) - (doc.weights.get(left) ?? 0));

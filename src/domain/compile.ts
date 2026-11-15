@@ -37,14 +37,33 @@ export interface CompiledDraft {
 
 const H1 = /^#[ \t]+(.+?)[ \t]*#*[ \t]*$/m;
 const LINK = /!?\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
-const SOURCE_CN = /[（(]?来源\s*[:：]\s*([^\s，,；;）)]+)(?:\s*(?:#|p\.?|第)\s*(\d+))?/g;
-const SOURCE_EN = /\bsource\s*[:：]\s*([^\s，,;；)]+)(?:\s*(?:#|page\s*|p\.?)\s*(\d+))?/gi;
-const PDF_LINK = /\]\(([^)\s]+\.pdf)(?:#(?:page=)?(\d+))?\)/gi;
+// Reference lines run to the end of the line: textbook file names contain both
+// spaces and parentheses (e.g. "…（第五版）高清版- 清华大学…pdf#page=473").
+const SOURCE_LINE = /(?:来源\s*[:：]|(?<![A-Za-z])source\s*[:：])\s*([^\n]+)/gi;
+// Nested parens appear inside the file name, so balance one level instead of [^)].
+const PDF_LINK = /\]\(\s*([^()\n]*(?:\([^()\n]*\)[^()\n]*)*?\.pdf)(?:#(?:page=)?(\d+))?\s*\)/gi;
+const PAGE_MARK = /(?:#\s*(?:page\s*=\s*)?(\d+)|第\s*(\d+)\s*页|\s(?:p\.?|page)\s*(\d+))/i;
 const FENCE = /^\s*(\x60{3,}|~{3,})/;
 
 function fileStem(relPath: string): string {
   const name = relPath.split('/').pop() ?? relPath;
-  return name.replace(/\.md$/i, '').replace(/^~+/, '').trim();
+  return name
+    .replace(/\.md$/i, '')
+    .replace(/^~+/, '')
+    // "2026-11-14 稳压管…" → "稳压管…": the date is authorship, not a title.
+    .replace(/^\d{4}[-_.]\d{1,2}[-_.]\d{1,2}[\s_-]+/, '')
+    .trim();
+}
+
+/** Split "path#12" / "path 第12页" / "path p.12" into its path and page. */
+function splitReference(raw: string): { path: string; page?: string } {
+  const line = raw.replace(/[\s）)]+$/u, '').trim();
+  const match = PAGE_MARK.exec(line);
+  if (match === null) return { path: line };
+  const page = match[1] ?? match[2] ?? match[3];
+  const path = line.slice(0, match.index).replace(/[\s,，;；、]+$/u, '').trim();
+  if (page === undefined || path === '') return { path: line };
+  return { path, page };
 }
 
 function cleanReference(raw: string): string | undefined {
@@ -68,9 +87,13 @@ function addSource(into: string[], seen: Set<string>, raw: string, page?: string
 export function extractSources(body: string, seed: readonly string[] = []): readonly string[] {
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const item of seed) addSource(out, seen, item);
-  for (const match of body.matchAll(SOURCE_CN)) addSource(out, seen, match[1] ?? '', match[2]);
-  for (const match of body.matchAll(SOURCE_EN)) addSource(out, seen, match[1] ?? '', match[2]);
+  const push = (raw: string): void => {
+    const ref = splitReference(raw);
+    if (ref.path === '') return;
+    addSource(out, seen, ref.path, ref.page);
+  };
+  for (const item of seed) push(item);
+  for (const match of body.matchAll(SOURCE_LINE)) push(match[1] ?? '');
   for (const match of body.matchAll(PDF_LINK)) addSource(out, seen, match[1] ?? '', match[2]);
   return out;
 }
@@ -155,6 +178,7 @@ export function compileDraft(input: CompileInput): CompiledDraft {
   const addedSources = sources.filter((item) => !knownSources.has(item.toLowerCase())).length;
   if (addedSources > 0) changes.push('+' + addedSources + ' source(s) from body');
   if (heading === null) changes.push('added H1');
+  else if (headingTitle !== undefined && headingTitle !== title) changes.push('H1 replaced with frontmatter title');
   if (collapsed > 0) changes.push('collapsed ' + collapsed + ' blank line(s)');
 
   const entries: [string, FrontmatterValue][] = [];

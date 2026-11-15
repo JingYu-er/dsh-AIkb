@@ -25,6 +25,16 @@ test('lint reports broken links, duplicates, orphans and missing type', async ()
   assert.equal(report.counts['frontmatter.type'], 1);
 });
 
+test('compiled drafts are machine copies, not notes', async () => {
+  const fs = {
+    listFiles: async () => [{ relPath: 'a.md' }, { relPath: 'inbox/_compiled/a.md' }, { relPath: 'inbox/draft.md' }],
+    readText: async (relPath: string) => (relPath === 'a.md' ? '---\ntype: concept\n---\n\nbody' : '---\ntitle: A\ntype: thought\n---\n\nbody'),
+  };
+  const report = await runLint(fs, '/vault');
+  assert.equal(report.notes, 2);
+  assert.equal(report.counts['title.duplicate'] ?? 0, 0);
+});
+
 test('attachment embeds are not treated as notes', async () => {
   const report = await runLint(fakeFs, '/vault');
   const broken = report.findings.filter((finding) => finding.rule === 'link.broken');

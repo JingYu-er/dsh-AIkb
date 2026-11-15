@@ -33,6 +33,8 @@ const KEY_LINE = /^([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)\s*:\s*(.*)$/;
 const ATTACHMENT = /\.(png|jpe?g|gif|webp|svg|pdf|mp4|canvas|excalidraw|base)$/i;
 /** Plugin/skill folders that ship example markdown; they are not knowledge notes. */
 const SKIP_PREFIX = /^(copilot|\.agents|\.claude|\.wiki)\//i;
+/** Compiled drafts in inbox are machine copies; their source draft is the note to lint. */
+const COMPILED_PREFIX = /^inbox\/_compiled\//i;
 const FENCED = /```[\s\S]*?```|~~~[\s\S]*?~~~/g;
 
 const MAX_PER_RULE = 50;
@@ -80,7 +82,9 @@ function pushFinding(findings: LintFinding[], counted: Record<string, number>, f
 
 export async function runLint(fs: LintFs, vaultRoot: string): Promise<LintReport> {
   const started = Date.now();
-  const notes = (await fs.listFiles()).filter((entry) => /\.md$/i.test(entry.relPath) && !SKIP_PREFIX.test(entry.relPath));
+  const notes = (await fs.listFiles()).filter(
+    (entry) => /\.md$/i.test(entry.relPath) && !SKIP_PREFIX.test(entry.relPath) && !COMPILED_PREFIX.test(entry.relPath),
+  );
   const byName = new Map<string, string[]>();
   for (const note of notes) {
     const key = normalise(basenameOf(note.relPath));

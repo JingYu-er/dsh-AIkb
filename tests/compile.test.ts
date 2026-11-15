@@ -58,6 +58,31 @@ test('sources and links are de-duplicated across forms', () => {
   assert.deepEqual(extractLinks(body), ['a']);
 });
 
+test('references survive spaces, parentheses and a trailing closing paren', () => {
+  const body = [
+    '正文。',
+    '（来源：项目/砖块/7-模拟电子技术基础（第五版）高清版- 清华大学电子学教研组编、童诗白、华成英.pdf#page=473）',
+    '另见 [课堂笔记](学习/硬件/模电/模拟电子技术基础(上交大郑益慧老师45集全)课堂笔记.pdf#page=88)。',
+  ].join('\n');
+  assert.deepEqual(extractSources(body), [
+    '项目/砖块/7-模拟电子技术基础（第五版）高清版- 清华大学电子学教研组编、童诗白、华成英.pdf#473',
+    '学习/硬件/模电/模拟电子技术基础(上交大郑益慧老师45集全)课堂笔记.pdf#88',
+  ]);
+});
+
+test('a date-prefixed filename is not used as the title', () => {
+  const compiled = compileDraft({ relPath: '2026-11-14 稳压管稳压电路的限流电阻.md', text: '正文。\n', sourceHash: 'h3' });
+  assert.equal(compiled.title, '稳压管稳压电路的限流电阻');
+  assert.equal(compiled.changes.includes('title from filename'), true);
+});
+
+test('an H1 that differs from the frontmatter title is reported', () => {
+  const text = '---\ntitle: 带失真的静态工作点\n---\n# 静态工作点\n\n正文。\n';
+  const compiled = compileDraft({ relPath: 'q.md', text, sourceHash: 'h4' });
+  assert.equal(compiled.changes.includes('H1 replaced with frontmatter title'), true);
+  assert.match(compiled.content, /^# 带失真的静态工作点$/m);
+});
+
 function fakeFs(seed: Record<string, string>): CompileFs & { files: Map<string, string> } {
   const files = new Map(Object.entries(seed));
   return {

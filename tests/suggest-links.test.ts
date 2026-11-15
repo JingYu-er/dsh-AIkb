@@ -37,6 +37,22 @@ test('note filter limits the scan to one note', async () => {
   assert.ok(report.suggestions.every((entry) => entry.from === 'a.md'));
 });
 
+test('a draft is not suggested to its own promoted copy', async () => {
+  const body = '稳压管稳压电路与限流电阻的选型，稳压管工作电流。';
+  const files: Record<string, string> = {
+    '学习/笔记/稳压管.md': body,
+    'inbox/稳压管.md': body,
+    'b.md': '# 限流电阻\n\n稳压管限流电阻按最大电流选。',
+  };
+  const fs = {
+    listFiles: async () => Object.keys(files).map((relPath) => ({ relPath })),
+    readText: async (relPath: string) => files[relPath] ?? '',
+  };
+  const report = await suggestLinks(fs, '/vault');
+  const cross = report.suggestions.filter((entry) => entry.from.startsWith('inbox/') && entry.to === '稳压管');
+  assert.deepEqual(cross, []);
+});
+
 test('template trees are never suggested', async () => {
   const files: Record<string, string> = {
     ...FILES,
