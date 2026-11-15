@@ -21,6 +21,8 @@ export interface KbQueryArgs {
   readonly maxContextChars?: number;
   /** Reorder candidates with the local cross-encoder (default from config; off unless provisioned). */
   readonly rerank?: boolean;
+  /** Extra phrasings of the same question; each is searched on its own and the lists are fused by rank. */
+  readonly queries?: readonly string[];
 }
 
 /**
@@ -97,6 +99,7 @@ const OUTPUT_SCHEMA: SchemaNode = {
         chunks: { type: 'integer', required: true },
         vectors: { type: 'integer' },
         families: { type: 'integer' },
+        queries: { type: 'integer' },
       },
     },
     retrieval: { type: 'string' },
@@ -163,7 +166,8 @@ function renderReport(report: QueryReport): string {
   const mode = (report.retrieval === 'hybrid'
     ? 'hybrid (BM25 + vectors)'
     : 'BM25' + (report.searched.vectors === undefined ? '' : ' (vectors unavailable)'))
-    + (report.reranked === true ? ' + rerank' : '');
+    + (report.reranked === true ? ' + rerank' : '')
+    + (report.searched.queries === undefined ? '' : ' + fused(' + report.searched.queries + ' phrasings)');
   if (report.hits.length === 0) return 'no hits for "' + report.query + '" across ' + report.searched.chunks + ' chunks (' + report.searched.sources + ' sources, ' + mode + ')';
   const lines: string[] = [];
   lines.push('query: ' + report.query + ' | ' + report.searched.chunks + ' chunks from ' + report.searched.sources + ' sources | ' + mode + ' | ' + report.elapsedMs + ' ms');
@@ -195,6 +199,11 @@ export function createKbQueryTool(deps: KbQueryDeps) {
         type: 'boolean',
         description: 'Reorder the candidate pool with the local cross-encoder (bge-reranker-base). Slower (~1-3 s) but fixes page drift. Defaults to the plugin config.',
       },
+      queries: {
+        type: 'array',
+        items: { type: 'string' },
+        description: 'Optional extra phrasings of the same question (Chinese, English, an abbreviation, a device name). Each is searched separately and the results are fused by rank, so one bad phrasing cannot win; prefer this over calling kb_query twice. Up to 5 extra (6 total).',
+      },
     },
     output: { schema: OUTPUT_SCHEMA, render: (_args, report) => [{ type: 'text', text: renderReport(report) }] },
     async execute(args) {
@@ -221,15 +230,27 @@ export function createKbQueryTool(deps: KbQueryDeps) {
             };
           }
         }
+        // Rank fusion needs each phrasing spelled out; blank entries and duplicates are dropped in
+        // runQuery, and more than six variants only dilute the vote.
+        const extraQueries = (args.queries ?? [])
+          .map((text) => text.trim())
+          .filter((text) => text !== '')
+          .slice(0, 5);
         const window = {
           glossary: deps.glossaryExpansion === true ? loadVaultGlossary(root) : [],
           ...(args.expand === undefined ? {} : { expand: args.expand }),
           ...(args.maxContextChars === undefined ? {} : { maxContextChars: args.maxContextChars }),
           ...(rerank === undefined ? {} : { rerank }),
+          ...(extraQueries.length === 0 ? {} : { queries: extraQueries }),
         };
         // Reranking supersedes the vector tail slots: the cross-encoder compares the query with each
         // passage directly, so spending 1-2 s on a query embedding and then ignoring its hits is waste.
         if (rerank !== undefined) {
+          return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8, window);
+        }
+        // A fused list is built from full questions and already fills every slot, so the vector
+        // tail would only displace better-ranked pages; skip the query embedding entirely.
+        if (extraQueries.length > 0) {
           return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8, window);
         }
         const vectors = deps.embedEnabled === false ? undefined : loadVectors(root);

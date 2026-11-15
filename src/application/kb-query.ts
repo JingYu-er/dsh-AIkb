@@ -1,5 +1,5 @@
 import { createBm25 } from '../domain/bm25.js';
-import type { Bm25Document, Bm25Index } from '../domain/bm25.js';
+import type { Bm25Document, Bm25Hit, Bm25Index } from '../domain/bm25.js';
 import { expandQuery } from '../domain/glossary.js';
 import type { GlossaryEntry } from '../domain/glossary.js';
 import { assignFamilies } from '../domain/family.js';
@@ -41,6 +41,11 @@ export interface QueryOptions {
   /** Disable the per-process index cache (tests, or when the caller mutates files in place). */
   readonly cache?: boolean;
   /**
+   * Extra phrasings of the same question (Chinese, English, an abbreviation). Each is searched on
+   * its own and the ranked lists are fused by reciprocal rank, so one bad phrasing cannot win.
+   */
+  readonly queries?: readonly string[];
+  /**
    * Score a list of passages against the query with a cross-encoder. Supplied by the tool layer
    * so this module never spawns a process; undefined means "keep the lexical order".
    */
@@ -67,7 +72,7 @@ export interface QueryReport {
   readonly vaultRoot: string;
   readonly query: string;
   readonly hits: readonly QueryHit[];
-  readonly searched: { readonly sources: number; readonly chunks: number; readonly vectors?: number; readonly families?: number };
+  readonly searched: { readonly sources: number; readonly chunks: number; readonly vectors?: number; readonly families?: number; readonly queries?: number };
   readonly retrieval?: 'bm25' | 'hybrid';
   /** True when a cross-encoder reordered the candidates for this query. */
   readonly reranked?: boolean;
@@ -135,6 +140,7 @@ const DEFAULT_FAMILY_CAP = 3;
 const DEFAULT_CONTEXT_CHARS = 3000;
 const CHAPTER_POOL = 24;
 const DEFAULT_RERANK_POOL = 40;
+const RRF_K = 60;
 
 /** One built index per vault; rebuilt when the catalog changes. 30 MB of tokens is worth keeping. */
 const INDEX_CACHE = new Map<string, IndexSnapshot>();
@@ -363,34 +369,57 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     if (options.cache !== false) INDEX_CACHE.set(fs.root, snapshot);
   }
 
-  // A user who names a device ("ADA4505", "MG996R") means that datasheet; those tokens also sit
-  // in the book file name, so any document whose book carries one of them is scored higher.
-  const queryTokens = tokenize(queryText);
-  const namedEntities = queryTokens.filter((token) => /[0-9]/.test(token) && token.length >= 4);
+  // Each phrasing gets its own ranking; the lists are fused by reciprocal rank (RRF). Unlike
+  // fusing BM25 with vectors, every input here is a full question, so a rank gap means something.
+  const variants: string[] = [];
+  for (const candidate of [queryText, ...(options.queries ?? [])]) {
+    const text = candidate.trim();
+    if (text !== '' && !variants.includes(text) && variants.length < 6) variants.push(text);
+  }
+  const searchPool = Math.max(topK * 8, 64);
   const extra = expandQuery(queryText, options.glossary ?? []);
   const expansion = extra.length === 0 ? undefined : { text: extra.join(' '), scale: 0.35 };
 
-  // Chapter-level match: a section title is the author summary of the pages below it, which is
-  // exactly what a low-density textbook page lacks. Matching headings lift every chunk inside them.
-  const chapterHits = snapshot.chapterIndex.search(queryText, CHAPTER_POOL, undefined, expansion);
-  const chapterMax = chapterHits[0]?.score ?? 0;
-  const chapterScores = new Map<string, number>();
-  if (chapterMax > 0) {
-    for (const hit of chapterHits) chapterScores.set(hit.id, hit.score / chapterMax);
-  }
-  const documentWeight = (document: Bm25Document): number => {
-    const item = snapshot.byId.get(document.id);
-    if (item === undefined) return 1;
-    let weight = 1;
-    if (namedEntities.length > 0) {
-      const bookTokens = new Set(tokenize(item.path.split('/').pop() ?? ''));
-      if (namedEntities.some((token) => bookTokens.has(token))) weight *= 2.5;
+  const rankFor = (text: string, widen: boolean): Bm25Hit[] => {
+    // A user who names a device ("ADA4505", "MG996R") means that datasheet; those tokens also sit
+    // in the book file name, so any document whose book carries one of them is scored higher.
+    const namedEntities = tokenize(text).filter((token) => /[0-9]/.test(token) && token.length >= 4);
+    // Chapter-level match: a section title is the author summary of the pages below it, which is
+    // exactly what a low-density textbook page lacks. Matching headings lift every chunk inside them.
+    const chapterHits = snapshot.chapterIndex.search(text, CHAPTER_POOL, undefined, widen ? expansion : undefined);
+    const chapterMax = chapterHits[0]?.score ?? 0;
+    const chapterScores = new Map<string, number>();
+    if (chapterMax > 0) {
+      for (const hit of chapterHits) chapterScores.set(hit.id, hit.score / chapterMax);
     }
-    const chapterScore = chapterScoreOf(snapshot, item.chapter, chapterScores);
-    if (chapterScore > 0) weight *= 1 + 0.5 * chapterScore;
-    return weight;
+    const documentWeight = (document: Bm25Document): number => {
+      const item = snapshot.byId.get(document.id);
+      if (item === undefined) return 1;
+      let weight = 1;
+      if (namedEntities.length > 0) {
+        const bookTokens = new Set(tokenize(item.path.split('/').pop() ?? ''));
+        if (namedEntities.some((token) => bookTokens.has(token))) weight *= 2.5;
+      }
+      const chapterScore = chapterScoreOf(snapshot, item.chapter, chapterScores);
+      if (chapterScore > 0) weight *= 1 + 0.5 * chapterScore;
+      return weight;
+    };
+    return snapshot.index.search(text, searchPool, documentWeight, widen ? expansion : undefined);
   };
-  const ranked = snapshot.index.search(queryText, Math.max(topK * 8, 64), documentWeight, expansion);
+  const ranked = rankFor(queryText, true);
+  let fused: readonly { id: string; score: number }[] | undefined;
+  if (variants.length > 1) {
+    const scores = new Map<string, number>();
+    variants.forEach((text, index) => {
+      const list = index === 0 ? ranked : rankFor(text, false);
+      list.slice(0, searchPool).forEach((hit, rank) => {
+        scores.set(hit.id, (scores.get(hit.id) ?? 0) + 1 / (RRF_K + rank + 1));
+      });
+    });
+    fused = [...scores.entries()]
+      .map(([id, score]) => ({ id, score }))
+      .sort((left, right) => right.score - left.score);
+  }
 
   // Lexical-first interleaving. Fusing the two lists by rank (RRF) looked reasonable but the rank
   // gaps are tiny (1/61 vs 1/62), so a page that is mediocre in BM25 and mediocre in vector space
@@ -436,7 +465,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
   if (rerank !== undefined) {
     const pool = options.rerankPool ?? DEFAULT_RERANK_POOL;
     const candidates: string[] = [];
-    for (const hit of ranked.slice(0, pool)) {
+    for (const hit of (fused ?? ranked).slice(0, pool)) {
       if (snapshot.byId.has(hit.id) && !candidates.includes(hit.id)) candidates.push(hit.id);
     }
     // Vector hits stay out of the rerank pool on purpose: the cross-encoder already judges the
@@ -456,6 +485,13 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     for (const hit of order) {
       if (selected.length >= topK) break;
       take(hit.id, hit.score);
+    }
+  } else if (fused !== undefined) {
+    // Fusion replaces the vector tail: every candidate here already came from a full question.
+    const best = fused[0]?.score ?? 0;
+    for (const hit of fused) {
+      if (selected.length >= topK) break;
+      take(hit.id, best > 0 ? hit.score / best : 0);
     }
   } else {
     const best = ranked[0]?.score ?? 0;
@@ -496,7 +532,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
       ...(expand === 'none' ? {} : { context: contextOf(snapshot, item, expand, maxContextChars) }),
     };
   });
-  const hybrid = vectorCount > 0;
+  const hybrid = vectorCount > 0 && fused === undefined;
   return {
     ok: true,
     vaultRoot: fs.root,
@@ -507,6 +543,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
       chunks: snapshot.documents.length,
       ...(hybrid ? { vectors: vectorCount } : {}),
       ...(snapshot.families > 0 ? { families: snapshot.families } : {}),
+      ...(variants.length > 1 ? { queries: variants.length } : {}),
     },
     retrieval: hybrid ? 'hybrid' : 'bm25',
     ...(reranked ? { reranked: true } : {}),

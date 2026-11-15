@@ -120,20 +120,24 @@ skill filesystem provider declared in `cordis.patch.yml`, so it appears in the
 agent's skill catalog as `kb-search` after DSH restarts.
 
 The skill does not change retrieval — it changes how the agent asks. It says to
-decompose a question into 3–8 high-signal terms, run separate Chinese and
-English `kb_query` calls instead of one long sentence (mixed-language queries
-dilute the BM25 coverage factor), merge hits by `path` + `page`, widen only one
-or two hits with `expand: "section"`, drop index pages and near-empty pages, and
-always cite `path p.N` (or `p.N–M`). It also states the measured baseline
-(topic 26/26, right book 20/26, exact page 11/26) so the agent knows that the
-book and chapter are reliable while the page number may drift.
+decompose a question into 3–8 high-signal terms and pass the alternative
+phrasings of one question (English translation, another name, an abbreviation)
+as `queries: [...]` in a single call, where the lists are fused by rank; one
+long mixed-language sentence still dilutes the BM25 coverage factor. It then
+merges hits by `path` + `page`, widens only one or two hits with
+`expand: "section"`, drops index pages and near-empty pages, and always cites
+`path p.N` (or `p.N–M`). It also states the measured baseline (topic 26/26,
+right book 20/26, exact page 11/26) so the agent knows that the book and chapter
+are reliable while the page number may drift.
 
 ## Retrieval quality
 
 Measured on the author's vault: 176 indexed books (3 of them OCR'd scans), 23,655
 page-anchored chunks, 26 questions (15 tuned, 11 held out). Truth pages come from
 raw PyMuPDF text search, never from the retrieval system itself. `topK = 8`, warm
-in-process index.
+in-process index. Both question sets live in `bench/sets/`; `npm run bench --
+--set all` reproduces the rows below, with `--multi`, `--rerank`, `--mode hybrid`
+and `--expand` as switches.
 
 - **page@5** — a top-5 hit lands in the truth book within ±2 pages.
 - **near@5** — within ±10 pages (the answer is on the neighbouring spread).
@@ -148,6 +152,7 @@ in-process index.
 | Held out (11) | 5/11 | 6/11 | 8/11 | 5/11 | 11/11 | 0.21 |
 | All (26) | 11/26 (42%) | 13/26 | 20/26 (77%) | 12/26 | 26/26 | 0.20 |
 | All + rerank | 12/26 (46%) | 14/26 | 19/26 | 14/26 | 26/26 | 0.30 |
+| All + fused | 14/26 (54%) | 16/26 | 21/26 | 14/26 | 26/26 | 0.34 |
 
 The rerank row is `rerank: true` on top of plain BM25 (`page@1` goes 2/26 →
 5/26 and `page@8` 12/26 → 14/26; it also beats hybrid without rerank). It costs
@@ -155,6 +160,17 @@ The rerank row is `rerank: true` on top of plain BM25 (`page@1` goes 2/26 →
 results is worse than reranking BM25 alone (MRR 0.19 vs 0.30), and truncating
 pairs at 512 instead of 128 took 31 s/query for MRR 0.16 — both variants are
 disabled on purpose.
+
+The fused row is the same query plus its English translation passed as
+`queries: [...]` (2–6 phrasings, one BM25 ranking each, fused by reciprocal
+rank): `page@1` 2/26 → 5/26, `page@8` 12/26 → 14/26, and it costs ~0.4–0.7 s
+because every phrasing runs its own search. Fusion also fills every slot, so
+vector hits are skipped entirely. Combining fusion with rerank is worse than
+either alone (13/26, MRR 0.27): the cross-encoder re-imposes the single-page
+preference that the phrasings had just widened. English questions lose instead of
+gain (page@1 13/17 → 10/17, page@5 16/17 → 13/17, MRR 0.85 → 0.67), because an
+English restatement adds vocabulary the textbook already uses — use one English
+query there.
 
 Hybrid retrieval (BM25 + e5-small) adds one page@8 and one window hit and nothing
 above: vector hits occupy at most the last `floor(topK × 0.25)` slots. The index
@@ -175,9 +191,12 @@ chunks, 17 questions whose truth pages were verified against the PDF text layer.
 English textbook prose repeats the query terms, so lexical retrieval already lands
 the right page; the cross-encoder then collapses a discussion that spans several
 pages onto the single page it scores highest (Norton → the next section,
-common-emitter → feedback) and loses page hits. Keep `rerank: true` for Chinese
-questions with vocabulary drift, not for English ones: at 512 tokens it also lost
-page hits, so this is not a truncation artifact.
+common-emitter → feedback) and loses page hits. Rank fusion loses for the same
+reason: the English keyword-style second phrasing pulls the list toward pages
+that merely list the terms (page@5 16/17 → 13/17). Keep `rerank: true` and
+`queries: [...]` for Chinese questions with vocabulary drift, not for English
+ones: at 512 tokens rerank also lost page hits, so this is not a truncation
+artifact.
 
 ### Performance and memory
 

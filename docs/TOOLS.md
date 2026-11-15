@@ -157,11 +157,29 @@ reranking never fails a query. The worker is spawned with `--parent-pid` and exi
 within ~3 s if its host disappears (including a hard kill that never runs Node's
 `exit` hook), so no 600 MB Python process is left behind.
 
-Input: `{ query: string, topK?: number, expand?: "none" | "page" | "section", maxContextChars?: number, rerank?: boolean, vaultPath?: string }`
+`queries: [...]` adds up to five more phrasings of the same question (an English
+translation, another name, an abbreviation, a device name) without a second
+tool call. Each phrasing is ranked on its own — same tokenizer, chapter weighting
+and book-name weighting — and the lists are fused by reciprocal rank (k = 60), so
+one bad phrasing contributes a few tail positions instead of dominating. On the
+26-question Chinese set this lifted page@5 from 11/26 to 14/26, near@5 from 13 to
+16 and MRR from 0.20 to 0.34 for ~0.4–0.7 s per query; the top five slots are no
+longer reserved for the literal query, so a phrasing that matches better can win.
+A fused list fills every slot, which means vector hits are deliberately skipped
+(no query embedding is computed). Do not combine fusion with `rerank`: on the
+same set the pair scored 13/26 and MRR 0.27, worse than fusion alone, because the
+cross-encoder pulls the widened list back onto single pages. English questions
+lose (17-question set: page@1 13/17 → 10/17, page@5 16/17 → 13/17, MRR 0.85 →
+0.67): an English restatement adds no vocabulary the textbook lacks, so one
+English query is enough. Blank and duplicate phrasings collapse back to the
+single-query path (and `searched.queries` is then absent).
+
+Input: `{ query: string, queries?: string[], topK?: number, expand?: "none" | "page" | "section", maxContextChars?: number, rerank?: boolean, vaultPath?: string }`
 
 Output: `hits[]` (`path`, `page`, `pageEnd?`, `section?`, `score`, `excerpt`,
 `context?`), `searched` (`sources`, `chunks`, `vectors` when hybrid, `families`
-when edition families were detected), `retrieval` (`"bm25"` or `"hybrid"`),
+when edition families were detected, `queries` when phrasings were fused),
+`retrieval` (`"bm25"` or `"hybrid"`; remains `"bm25"` for a fused list),
 `reranked` (true only when a cross-encoder actually reordered this list). If
 the model or vectors are unavailable the query silently falls back to BM25
 instead of failing.
