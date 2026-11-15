@@ -354,6 +354,7 @@ skill only keeps the calling side disciplined.
 ## Planned
 
 The original roadmap (read path, `kb_lint`, `kb_suggest_links`, `kb_compile`,
-`kb_promote`) is complete. Further work is quality rather than surface area: a
-formula-preserving path for OCR text, and a reranker experiment for page
-accuracy.
+`kb_promote`) is complete, and the cross-encoder rerank (`kb_query` `rerank`)
+is shipped as opt-in. Further work is quality rather than surface area: a
+formula-preserving path for OCR text, and persistent on-disk index structures if
+startup latency ever matters.
