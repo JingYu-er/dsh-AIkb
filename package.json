@@ -11,7 +11,7 @@
     ".": "./dist/index.js",
     "./package.json": "./package.json"
   },
-  "files": ["dist", "scripts", "cordis.patch.yml", "README.md", "LICENSE", "docs"],
+  "files": ["dist", "scripts", "skills", "cordis.patch.yml", "README.md", "LICENSE", "docs"],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

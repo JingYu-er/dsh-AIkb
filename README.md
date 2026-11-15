@@ -103,6 +103,22 @@ kb_promote  { limit: 3 }                   # diff preview; add confirm:true to w
 kb_suggest_links { note: "学习/硬件/笔记/结电容.md" }   # candidate [[links]] (read-only)
 ```
 
+## Agent skill
+
+The plugin ships one agent skill, `kb-search`, under
+[`skills/kb-search/SKILL.md`](skills/kb-search/SKILL.md). It is loaded by the
+skill filesystem provider declared in `cordis.patch.yml`, so it appears in the
+agent's skill catalog as `kb-search` after DSH restarts.
+
+The skill does not change retrieval — it changes how the agent asks. It says to
+decompose a question into 3–8 high-signal terms, run separate Chinese and
+English `kb_query` calls instead of one long sentence (mixed-language queries
+dilute the BM25 coverage factor), merge hits by `path` + `page`, widen only one
+or two hits with `expand: "section"`, drop index pages and near-empty pages, and
+always cite `path p.N` (or `p.N–M`). It also states the measured baseline
+(topic 26/26, right book 20/26, exact page 11/26) so the agent knows that the
+book and chapter are reliable while the page number may drift.
+
 ## Retrieval quality
 
 Measured on the author's vault: 176 indexed books (3 of them OCR'd scans), 23,655

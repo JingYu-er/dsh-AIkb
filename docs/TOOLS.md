@@ -293,6 +293,19 @@ Input: `{ vaultPath?: string, limit?: number, force?: boolean }`
 Output: `books[]` (`path`, `sha256`, `chunks`, `seconds`, `error`),
 `totals` (`books`, `chunks`, `upToDate`), `model`.
 
+## kb-search skill
+
+Not a tool: an agent skill shipped with the plugin (`skills/kb-search/SKILL.md`),
+mounted by the `@deepseek-ai/dsh-skill-filesystem` provider in `cordis.patch.yml`
+(`providerName: dsh-kb-plugin`, `bundledSkillDir` resolved from
+`dsh-kb/package.json` so it works for `link:` installs).
+
+It is guidance, not retrieval code: decompose the question into 3–8 terms, query
+in Chinese and English in separate `kb_query` calls, merge by `path` + `page`,
+widen one or two hits with `expand: "section"`, skip TOC/blank/index pages, and
+cite `path p.N`. Changing DSH's retrieval still means changing `kb_query`; the
+skill only keeps the calling side disciplined.
+
 ## Error codes
 
 | Code | Meaning |

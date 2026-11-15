@@ -7,3 +7,12 @@
       name: dsh-kb
       config:
         allowWrites: false
+    # Agent skill shipped with this bundle (skills/kb-search). Resolved from the
+    # installed package identity anchored at the DSH profile, never a path glued
+    # onto baseUrl.
+    - id: dsh-kb-skills
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: dsh-kb-plugin
+        includeDefaultRoots: false
+        bundledSkillDir: !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('dsh-kb/package.json')), 'skills')
