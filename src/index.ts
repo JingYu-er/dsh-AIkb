@@ -2,6 +2,8 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import * as nodePath from 'node:path';
 import { ensureEmbeddingEnv } from './adapters/embeddings/embedding-env.js';
 import type { EmbeddingEnvReport } from './adapters/embeddings/embedding-env.js';
+import { ensureRerankEnv } from './adapters/embeddings/rerank-env.js';
+import type { RerankEnvReport } from './adapters/embeddings/rerank-env.js';
 import { ensureOcrEnv } from './adapters/pdf/ocr-env.js';
 import type { OcrEnvReport } from './adapters/pdf/ocr-env.js';
 import { ensurePythonEnv } from './adapters/pdf/python-env.js';
@@ -54,6 +56,15 @@ export interface KbPluginConfig {
   readonly embedModelDir?: string;
   /** Base URL the ONNX files are fetched from on first use. Default: hf-mirror. */
   readonly embedModelUrl?: string;
+  /**
+   * Rerank every query with the local cross-encoder. Off by default: ~1-3 s per query and a
+   * 279 MB model on first use. A single kb_query call can still pass rerank:true.
+   */
+  readonly rerankEnabled?: boolean;
+  /** Directory holding the reranker files. Default <workspaceRoot>/.kb/models/bge-reranker-base. */
+  readonly rerankModelDir?: string;
+  /** Base URL the reranker files are fetched from on first use. Default: hf-mirror. */
+  readonly rerankModelUrl?: string;
   /**
    * Widen queries with bilingual pairs harvested from this vault's books. Off by default: on the
    * 26-question evaluation the full list cost five page hits, and frequency-gated pairs were
@@ -168,6 +179,24 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
   };
   const embedEnabled = config.embedEnabled !== false;
 
+  /** Fetched on first reranked query, not at boot: most queries do not ask for it. */
+  let rerankEnvOnce: Promise<RerankEnvReport> | undefined;
+  const rerankEnv = (): Promise<RerankEnvReport> => {
+    if (rerankEnvOnce !== undefined) return rerankEnvOnce;
+    const pending = ensureRerankEnv({
+      workspaceRoot,
+      pythonPath: config.pythonPath ?? '',
+      venvPath: config.venvPath ?? '',
+      mirrorUrl: config.pythonMirror ?? '',
+      modelDir: config.rerankModelDir ?? '',
+      modelUrl: config.rerankModelUrl ?? '',
+      bootstrap: true,
+    });
+    rerankEnvOnce = pending;
+    return pending;
+  };
+  const rerankEnabled = config.rerankEnabled === true;
+
   try {
     registerTool(ctx, createKbDoctorTool({ allowWrites, resolveRoot, inspectPython: () => pythonEnv(false) }));
     registerTool(ctx, createKbInventoryTool({ allowWrites, resolveRoot }));
@@ -196,6 +225,8 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
         embedEnabled,
         glossaryExpansion: config.glossaryExpansion === true,
         ...(embedEnabled ? { prepareEmbedding: () => embeddingEnv() } : {}),
+        prepareRerank: () => rerankEnv(),
+        rerankDefault: rerankEnabled,
       }),
     );
     registerTool(

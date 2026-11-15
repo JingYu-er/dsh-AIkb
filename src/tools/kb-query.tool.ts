@@ -3,6 +3,8 @@ import * as nodePath from 'node:path';
 import { NodeVaultFs } from '../adapters/fs/node-vault-fs.js';
 import { embedQuery } from '../adapters/embeddings/embedding.js';
 import type { EmbeddingEnvReport } from '../adapters/embeddings/embedding-env.js';
+import { rerankPassages } from '../adapters/embeddings/rerank.js';
+import type { RerankEnvReport } from '../adapters/embeddings/rerank-env.js';
 import { emptyQueryReport, runQuery } from '../application/kb-query.js';
 import type { QueryReport, VectorStore } from '../application/kb-query.js';
 import { GLOSSARY_PATH, expansionEntries, parseGlossary } from '../application/glossary-store.js';
@@ -17,6 +19,8 @@ export interface KbQueryArgs {
   /** Return the page or section text around each hit; off by default. */
   readonly expand?: 'none' | 'page' | 'section';
   readonly maxContextChars?: number;
+  /** Reorder candidates with the local cross-encoder (default from config; off unless provisioned). */
+  readonly rerank?: boolean;
 }
 
 /**
@@ -41,6 +45,10 @@ export interface KbQueryDeps {
   readonly workspaceRoot?: () => string;
   /** Widen queries with the vault's harvested bilingual pairs. Off by default: measured neutral. */
   readonly glossaryExpansion?: boolean;
+  /** Present only when kb_query may rerank; absent keeps the tool on BM25/vectors. */
+  readonly prepareRerank?: () => Promise<RerankEnvReport>;
+  /** Rerank every query without the caller asking. Off by default: it costs ~1-3 s per query. */
+  readonly rerankDefault?: boolean;
 }
 
 const LINE_FEED = String.fromCharCode(10);
@@ -92,6 +100,7 @@ const OUTPUT_SCHEMA: SchemaNode = {
       },
     },
     retrieval: { type: 'string' },
+    reranked: { type: 'boolean' },
     elapsedMs: { type: 'integer', required: true },
   },
 };
@@ -151,9 +160,10 @@ function loadVectors(root: string): VectorStore | undefined {
 
 function renderReport(report: QueryReport): string {
   if (!report.ok) return 'kb_query FAILED ' + (report.error?.code ?? 'unknown') + ': ' + (report.error?.message ?? '');
-  const mode = report.retrieval === 'hybrid'
+  const mode = (report.retrieval === 'hybrid'
     ? 'hybrid (BM25 + vectors)'
-    : 'BM25' + (report.searched.vectors === undefined ? '' : ' (vectors unavailable)');
+    : 'BM25' + (report.searched.vectors === undefined ? '' : ' (vectors unavailable)'))
+    + (report.reranked === true ? ' + rerank' : '');
   if (report.hits.length === 0) return 'no hits for "' + report.query + '" across ' + report.searched.chunks + ' chunks (' + report.searched.sources + ' sources, ' + mode + ')';
   const lines: string[] = [];
   lines.push('query: ' + report.query + ' | ' + report.searched.chunks + ' chunks from ' + report.searched.sources + ' sources | ' + mode + ' | ' + report.elapsedMs + ' ms');
@@ -181,17 +191,47 @@ export function createKbQueryTool(deps: KbQueryDeps) {
         description: 'Also return the surrounding page or the whole section for each hit (default none). Each hit carries the text in context; keep maxContextChars small.',
       },
       maxContextChars: { type: 'integer', description: 'Cap on context characters per hit (default 3000).' },
+      rerank: {
+        type: 'boolean',
+        description: 'Reorder the candidate pool with the local cross-encoder (bge-reranker-base). Slower (~1-3 s) but fixes page drift. Defaults to the plugin config.',
+      },
     },
     output: { schema: OUTPUT_SCHEMA, render: (_args, report) => [{ type: 'text', text: renderReport(report) }] },
     async execute(args) {
       let root = '(unresolved)';
       try {
         root = deps.resolveRoot(args.vaultPath);
+        const workspaceRoot = deps.workspaceRoot?.() ?? root;
+        // Reranking never blocks search: a missing model or a timed-out process leaves the
+        // lexical order untouched, and the hit list simply reports reranked: false.
+        const wantRerank = args.rerank ?? deps.rerankDefault === true;
+        let rerank: ((documents: readonly string[]) => Promise<readonly number[] | undefined>) | undefined;
+        if (wantRerank && deps.prepareRerank !== undefined) {
+          const rerankReady = await deps.prepareRerank().catch(() => undefined);
+          if (rerankReady !== undefined && rerankReady.ok && rerankReady.modelReady) {
+            rerank = async (documents) => {
+              const result = await rerankPassages({
+                pythonPath: rerankReady.pythonPath,
+                workspaceRoot,
+                modelDir: rerankReady.modelDir,
+                query: args.query,
+                documents,
+              }).catch(() => undefined);
+              return result !== undefined && result.ok ? result.scores : undefined;
+            };
+          }
+        }
         const window = {
           glossary: deps.glossaryExpansion === true ? loadVaultGlossary(root) : [],
           ...(args.expand === undefined ? {} : { expand: args.expand }),
           ...(args.maxContextChars === undefined ? {} : { maxContextChars: args.maxContextChars }),
+          ...(rerank === undefined ? {} : { rerank }),
         };
+        // Reranking supersedes the vector tail slots: the cross-encoder compares the query with each
+        // passage directly, so spending 1-2 s on a query embedding and then ignoring its hits is waste.
+        if (rerank !== undefined) {
+          return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8, window);
+        }
         const vectors = deps.embedEnabled === false ? undefined : loadVectors(root);
         if (vectors === undefined || deps.prepareEmbedding === undefined) {
           return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8, window);
@@ -203,7 +243,7 @@ export function createKbQueryTool(deps: KbQueryDeps) {
         }
         const queryVector = await embedQuery({
           pythonPath: env.pythonPath,
-          workspaceRoot: deps.workspaceRoot?.() ?? root,
+          workspaceRoot,
           modelDir: env.modelDir,
           text: args.query,
         });

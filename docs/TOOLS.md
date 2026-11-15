@@ -137,11 +137,26 @@ not use the harvested glossary unless the plugin config sets
 `glossaryExpansion: true`; on the 26-question set the full harvested list cost
 five page hits, frequency-gated pairs were neutral.
 
-Input: `{ query: string, topK?: number, expand?: "none" | "page" | "section", maxContextChars?: number, vaultPath?: string }`
+`rerank: true` (or `rerankEnabled: true` in the plugin config) sends the 40
+best BM25 candidates through a local **bge-reranker-base** cross-encoder, which
+scores each (query, passage) pair jointly and reorders the list. This attacks the
+dominant failure — the right chapter but a page 5–30 off — because a passage that
+merely repeats the words scores lower than the passage that answers them.
+Vector hits are deliberately left out of the candidate pool: on the 26-question
+set adding them dropped MRR from 0.30 to 0.19, since a drifted vector page
+displaces a lexically exact one. Passages are truncated to 128 tokens (a pair
+costs ~9 ms there vs ~190 ms at 512) and the Python worker stays alive with the
+model loaded, so a warm rerank adds ~1.5–2 s (the first one in a process pays
+~2 s more to load 279 MB). Any failure (model missing, process error, score
+count mismatch) silently keeps the lexical order and reports `reranked: false`;
+reranking never fails a query.
+
+Input: `{ query: string, topK?: number, expand?: "none" | "page" | "section", maxContextChars?: number, rerank?: boolean, vaultPath?: string }`
 
 Output: `hits[]` (`path`, `page`, `pageEnd?`, `section?`, `score`, `excerpt`,
 `context?`), `searched` (`sources`, `chunks`, `vectors` when hybrid, `families`
-when edition families were detected), `retrieval` (`"bm25"` or `"hybrid"`). If
+when edition families were detected), `retrieval` (`"bm25"` or `"hybrid"`),
+`reranked` (true only when a cross-encoder actually reordered this list). If
 the model or vectors are unavailable the query silently falls back to BM25
 instead of failing.
 

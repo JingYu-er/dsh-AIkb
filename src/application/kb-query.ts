@@ -40,6 +40,13 @@ export interface QueryOptions {
   readonly familyCap?: number;
   /** Disable the per-process index cache (tests, or when the caller mutates files in place). */
   readonly cache?: boolean;
+  /**
+   * Score a list of passages against the query with a cross-encoder. Supplied by the tool layer
+   * so this module never spawns a process; undefined means "keep the lexical order".
+   */
+  readonly rerank?: (documents: readonly string[]) => Promise<readonly number[] | undefined>;
+  /** How many BM25 hits enter the reranker (vector hits are added on top). */
+  readonly rerankPool?: number;
 }
 
 export interface QueryHit {
@@ -62,6 +69,8 @@ export interface QueryReport {
   readonly hits: readonly QueryHit[];
   readonly searched: { readonly sources: number; readonly chunks: number; readonly vectors?: number; readonly families?: number };
   readonly retrieval?: 'bm25' | 'hybrid';
+  /** True when a cross-encoder reordered the candidates for this query. */
+  readonly reranked?: boolean;
   readonly elapsedMs: number;
 }
 
@@ -125,6 +134,7 @@ const MAX_HITS_PER_BOOK = 2;
 const DEFAULT_FAMILY_CAP = 3;
 const DEFAULT_CONTEXT_CHARS = 3000;
 const CHAPTER_POOL = 24;
+const DEFAULT_RERANK_POOL = 40;
 
 /** One built index per vault; rebuilt when the catalog changes. 30 MB of tokens is worth keeping. */
 const INDEX_CACHE = new Map<string, IndexSnapshot>();
@@ -417,24 +427,56 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     perFamily.set(item.family, usedFamily + 1);
     selected.push({ id, score });
   };
-  const best = ranked[0]?.score ?? 0;
-  let cursor = 0;
-  const takeLexical = (limit: number): void => {
-    while (selected.length < limit && cursor < ranked.length) {
-      const hit = ranked[cursor];
-      cursor += 1;
-      if (hit === undefined || !snapshot.byId.has(hit.id)) continue;
-      take(hit.id, best > 0 ? hit.score / best : 0);
+  // A local cross-encoder scores the pool jointly with the query. BM25 keeps the candidates
+  // honest (it finds the exact words); reranking decides which neighbour of those words actually
+  // answers the question, which is exactly where page drift happens.
+  const rerank = options.rerank;
+  let reranked = false;
+  let order: readonly { id: string; score: number }[] | undefined;
+  if (rerank !== undefined) {
+    const pool = options.rerankPool ?? DEFAULT_RERANK_POOL;
+    const candidates: string[] = [];
+    for (const hit of ranked.slice(0, pool)) {
+      if (snapshot.byId.has(hit.id) && !candidates.includes(hit.id)) candidates.push(hit.id);
     }
-  };
-  takeLexical(lexicalQuota);
-  for (const hit of vectorHits) {
-    if (selected.length >= topK) break;
-    if (!snapshot.byId.has(hit.id)) continue;
-    if (selected.some((entry) => entry.id === hit.id)) continue;
-    take(hit.id, hit.cosine);
+    // Vector hits stay out of the rerank pool on purpose: the cross-encoder already judges the
+    // query against each passage, and a drifted vector page displaces a lexically exact one
+    // (measured: hybrid + rerank dropped MRR from 0.30 to 0.19 on the 26-question set).
+    const documents = candidates.map((id) => snapshot.byId.get(id)?.chunk.text ?? '');
+    const scores = await rerank(documents);
+    if (scores !== undefined && scores.length === candidates.length) {
+      order = candidates
+        .map((id, index) => ({ id, score: scores[index] ?? 0 }))
+        .sort((left, right) => right.score - left.score);
+      reranked = true;
+    }
   }
-  takeLexical(topK);
+
+  if (order !== undefined) {
+    for (const hit of order) {
+      if (selected.length >= topK) break;
+      take(hit.id, hit.score);
+    }
+  } else {
+    const best = ranked[0]?.score ?? 0;
+    let cursor = 0;
+    const takeLexical = (limit: number): void => {
+      while (selected.length < limit && cursor < ranked.length) {
+        const hit = ranked[cursor];
+        cursor += 1;
+        if (hit === undefined || !snapshot.byId.has(hit.id)) continue;
+        take(hit.id, best > 0 ? hit.score / best : 0);
+      }
+    };
+    takeLexical(lexicalQuota);
+    for (const hit of vectorHits) {
+      if (selected.length >= topK) break;
+      if (!snapshot.byId.has(hit.id)) continue;
+      if (selected.some((entry) => entry.id === hit.id)) continue;
+      take(hit.id, hit.cosine);
+    }
+    takeLexical(topK);
+  }
 
   const expand = options.expand ?? 'none';
   const maxContextChars = options.maxContextChars ?? DEFAULT_CONTEXT_CHARS;
@@ -467,6 +509,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
       ...(snapshot.families > 0 ? { families: snapshot.families } : {}),
     },
     retrieval: hybrid ? 'hybrid' : 'bm25',
+    ...(reranked ? { reranked: true } : {}),
     elapsedMs: Date.now() - started,
   };
 }

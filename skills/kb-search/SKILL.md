@@ -9,7 +9,7 @@ description: >-
   时序/参数、需要页码引用 — or when one kb_query call returned nothing useful.
 license: MIT
 metadata:
-  version: "1.0"
+  version: "1.1"
   tools: kb_query, kb_inventory, kb_doctor
 ---
 
@@ -44,6 +44,7 @@ metadata:
 - 不要把中文和英文混在同一次 query 里，也不要贴整段问题。
 - 一次只查一个子问题；同一本书最多 2 条命中，被截断时**换词再查**，不要把 topK 调到 30。
 - 英文不要逐词直译中文短语，用器件/参数的标准英文名。
+- 两轮词都拆对了、候选章节也对，**但页码/段落明显漂**，或用户点名要「书里第几页」：对那次中文查询加 `rerank: true`（本地 bge-reranker-base 逐条比对，+2 s 左右）。它只重排 40 条词法候选，不改书、不改章节；不要每次查询都开。
 
 | 问题 | 中文 query | 英文 query |
 | --- | --- | --- |
@@ -89,15 +90,15 @@ metadata:
 
 ## 7. 工具速查
 
-- `kb_query({ query, topK = 8, expand = 'none'|'page'|'section', maxContextChars = 3000, vaultPath? })`
-  - 返回 `hits[].path/page/pageEnd/section/score/excerpt/context`、`searched.{sources,chunks,vectors,families}`、`retrieval`。
+- `kb_query({ query, topK = 8, expand = 'none'|'page'|'section', maxContextChars = 3000, rerank = false, vaultPath? })`
+  - 返回 `hits[].path/page/pageEnd/section/score/excerpt/context`、`searched.{sources,chunks,vectors,families}`、`retrieval`、`reranked`。
 - `kb_inventory`：入库清单与哈希，确认「有没有这本书」。
 - `kb_doctor`：库结构、写权限、索引与清单状态。
-- 性能：索引在进程内缓存，首查约 4 s，之后约 0.5 s；多查两轮不贵。
+- 性能：索引在进程内缓存，首查约 4 s，之后约 0.5 s；多查两轮不贵。`rerank: true` 每查约 +2 s（首次另加模型加载）。
 
 ## 8. 基线（校准预期）
 
-2026-11 的 26 题实测：主题命中 26/26，同书命中 20/26，精确页 ±2 只有 11/26（≈42%）。
+2026-11 的 26 题实测：主题命中 26/26，同书命中 20/26，精确页 ±2 只有 11/26（≈42%）；开 `rerank` 后精确页 12/26、±10 页 14/26、MRR 0.20→0.30。
 含义：**「哪本书、哪一章」很可靠，精确页码会漂**。优先给 section 与页区间；差十几页不要否定内容，也不要把邻近页说成原文页。
 
 ## 9. 常见术语对照（按需取 1–3 个）

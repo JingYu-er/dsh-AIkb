@@ -38,6 +38,10 @@ modified.
   on first use — it installs `tokenizers`/`onnxruntime` and downloads the
   multilingual-e5-small ONNX model (~130 MB) into
   `<workspaceRoot>/.kb/models/`. Everything runs locally; no model API, no tokens.
+- Optional reranking: `kb_query` can reorder its candidates with a local
+  bge-reranker-base cross-encoder (279 MB quantized, same private venv, downloaded
+  on the first reranked query). Off by default: it costs ~2.4 s per warm query
+  (the first one also loads the model).
 - A vault: a directory containing `.obsidian/`
 
 (EPUB/DJVU parsers are not wired yet; `kb_ingest` reports them as errors.)
@@ -85,6 +89,9 @@ Configure the machine-specific parts in the profile's `cordis.patch.yml`
     embedModelDir: D:/path/to/e5-small    # default <workspaceRoot>/.kb/models/multilingual-e5-small
     embedModelUrl: https://hf-mirror.com/Xenova/multilingual-e5-small/resolve/main
     glossaryExpansion: false              # widen queries with harvested pairs (measured neutral; off)
+    rerankEnabled: false                  # cross-encoder rerank every query (default off)
+    rerankModelDir: D:/path/to/bge-reranker-base   # default <workspaceRoot>/.kb/models/bge-reranker-base
+    rerankModelUrl: https://hf-mirror.com/Xenova/bge-reranker-base/resolve/main
     promoteDir: 学习/笔记/收件箱            # kb_promote destination (vault-relative); unset = off
 ```
 
@@ -97,6 +104,7 @@ kb_ingest   { limit: 3 }                   # first three books
 kb_embed    { limit: 5 }                   # local vectors over the index (incremental)
 kb_query    { query: "镜像电流源 原理" }     # hits with page + section
 kb_query    { query: "…", expand: "section" }  # + page window and whole-section context
+kb_query    { query: "…", rerank: true }        # + cross-encoder reorder (slower, fixes page drift)
 kb_lint                                    # broken links / orphans / frontmatter
 kb_compile  { dryRun: true }               # preview inbox drafts -> inbox/_compiled/
 kb_promote  { limit: 3 }                   # diff preview; add confirm:true to write
@@ -138,6 +146,14 @@ in-process index.
 | Tuned (15) | 6/15 | 7/15 | 12/15 | 7/15 | 15/15 | 0.20 |
 | Held out (11) | 5/11 | 6/11 | 8/11 | 5/11 | 11/11 | 0.21 |
 | All (26) | 11/26 (42%) | 13/26 | 20/26 (77%) | 12/26 | 26/26 | 0.20 |
+| All + rerank | 12/26 (46%) | 14/26 | 19/26 | 14/26 | 26/26 | 0.30 |
+
+The rerank row is `rerank: true` on top of plain BM25 (`page@1` goes 2/26 →
+5/26 and `page@8` 12/26 → 14/26; it also beats hybrid without rerank). It costs
+~2.4 s per warm query, which is why it stays off by default. Reranking hybrid
+results is worse than reranking BM25 alone (MRR 0.19 vs 0.30), and truncating
+pairs at 512 instead of 128 took 31 s/query for MRR 0.16 — both variants are
+disabled on purpose.
 
 Hybrid retrieval (BM25 + e5-small) adds one page@8 and one window hit and nothing
 above: vector hits occupy at most the last `floor(topK × 0.25)` slots. The index
