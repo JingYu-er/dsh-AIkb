@@ -49,6 +49,19 @@ test('coverage is weighted by IDF so a rare device name can carry the match', ()
   assert.equal(hits[0]?.id, 'rare');
 });
 
+test('coverage separates a question phrased in the corpus words from one that is not', () => {
+  const index = createBm25([
+    { id: 'a', text: '镜像电流源 参考电流 匹配晶体管' },
+    { id: 'b', text: '运放的增益带宽积与压摆率' },
+  ]);
+  // Every token (bigram included) of the question occurs somewhere in these two pages.
+  assert.equal(index.coverage('镜像电流源'), 1);
+  // 'switch-mode supply' never occurs, and unseen tokens count with a large idf, so coverage drops.
+  const partial = index.coverage('镜像电流源 开关电源');
+  assert.ok(partial > 0 && partial < 1, 'expected partial coverage, got ' + partial);
+  assert.equal(index.coverage(''), 0);
+});
+
 test('bm25 ranks the matching page first', () => {
   const index = createBm25([
     { id: 'a', text: '镜像电流源 参考电流 匹配晶体管' },

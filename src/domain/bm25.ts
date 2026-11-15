@@ -32,6 +32,12 @@ export interface Bm25Index {
     expansion?: Bm25Expansion,
   ): Bm25Hit[];
   readonly size: number;
+  /**
+   * IDF-weighted share of the query's tokens that occur somewhere in the corpus. A low value means
+   * the question uses words these books do not: the case where an alternative phrasing is worth
+   * paying for. Tokens that never occur count with the idf they would have had if seen once.
+   */
+  coverage(query: string): number;
 }
 
 const DEFAULT_K1 = 1.5;
@@ -63,8 +69,22 @@ export function createBm25(documents: readonly Bm25Document[], options: Bm25Opti
     idf.set(token, Math.log(1 + (total - frequency + 0.5) / (frequency + 0.5)));
   }
 
+  const unseenIdf = total === 0 ? 1 : Math.log(1 + (total + 0.5) / 0.5);
+
   return {
     size: documents.length,
+    coverage(query: string): number {
+      const tokens = [...new Set(tokenize(query))];
+      if (tokens.length === 0) return 0;
+      let seen = 0;
+      let all = 0;
+      for (const token of tokens) {
+        const weight = idf.get(token) ?? unseenIdf;
+        all += weight;
+        if (df.has(token)) seen += weight;
+      }
+      return all === 0 ? 0 : seen / all;
+    },
     search(
       query: string,
       topK = 8,

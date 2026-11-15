@@ -76,6 +76,8 @@ export interface QueryReport {
   readonly retrieval?: 'bm25' | 'hybrid';
   /** True when a cross-encoder reordered the candidates for this query. */
   readonly reranked?: boolean;
+  /** IDF-weighted share of the question's tokens that appear anywhere in the corpus (0..1). */
+  readonly coverage?: number;
   readonly elapsedMs: number;
 }
 
@@ -547,6 +549,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     },
     retrieval: hybrid ? 'hybrid' : 'bm25',
     ...(reranked ? { reranked: true } : {}),
+    coverage: Number(snapshot.index.coverage(queryText).toFixed(3)),
     elapsedMs: Date.now() - started,
   };
 }

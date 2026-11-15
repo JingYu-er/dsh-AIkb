@@ -130,6 +130,14 @@ crowd out the rest. The built index is cached per vault in the process keyed by
 the catalog bytes, which took a query from 3.6 s to ~0.45 s (the first query in a
 fresh process still pays the build).
 
+Boosting every chunk by its chapter's aggregate score (the sum of the chapter's
+three best chunk scores, normalised) was tried as a third chapter signal and
+rejected: at strength 0.3 it moved the 26-question page@1 from 2 to 3 and MRR
+from 0.20 to 0.22, but left page@5 at 11/26 and dropped the 12-question set from
+9/12 to 7/12 (MRR 0.58 to 0.53); strengths 0.8 and 1.5 lost more. The chapter is
+already counted twice — in the document weight above and in the returned window —
+so a third copy over-rewards long chapters.
+
 `expand: "section"` returns the whole contiguous chapter as `context` (broken at
 `maxContextChars`, 3,000 by default) plus `pageEnd` when the chapter spans
 several pages; `expand: "page"` returns every chunk of the hit page. Queries do
@@ -170,6 +178,14 @@ used, questions phrased in the textbooks' own words) moves the other way: page@5
 9/12 -> 7/12 and MRR 0.58 -> 0.44. Over all 38 Chinese questions the gain is 20/38
 -> 21/38, so treat `queries` as drift compensation for wording the books do not
 share, not as a default step.
+Corpus coverage makes that decision measurable: `coverage` is the IDF-weighted
+share of the question's tokens that occur anywhere in the index (a token never
+seen counts with the idf it would have had if seen once). Fusing only when
+coverage < 0.85 keeps the 21/38 page@5 of always-fusing while spending the extra
+searches on 12 of 38 questions; it is a cost knob, not a quality win (coverage <
+0.7 gives 20/38). Read it as a retry signal: below ~0.85 the books do not use the
+question's words, so rewrite the terms (synonym, English name, part number) or
+pass `queries`; at 1.0 prefer a single query.
 A fused list fills every slot, which means vector hits are deliberately skipped
 (no query embedding is computed). Do not combine fusion with `rerank`: on the
 same set the pair scored 13/26 and MRR 0.27, worse than fusion alone, because the
@@ -185,7 +201,8 @@ Output: `hits[]` (`path`, `page`, `pageEnd?`, `section?`, `score`, `excerpt`,
 `context?`), `searched` (`sources`, `chunks`, `vectors` when hybrid, `families`
 when edition families were detected, `queries` when phrasings were fused),
 `retrieval` (`"bm25"` or `"hybrid"`; remains `"bm25"` for a fused list),
-`reranked` (true only when a cross-encoder actually reordered this list). If
+`reranked` (true only when a cross-encoder actually reordered this list),
+`coverage` (0..1, share of the question's vocabulary the corpus knows). If
 the model or vectors are unavailable the query silently falls back to BM25
 instead of failing.
 

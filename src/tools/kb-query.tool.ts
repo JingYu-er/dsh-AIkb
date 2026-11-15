@@ -104,6 +104,7 @@ const OUTPUT_SCHEMA: SchemaNode = {
     },
     retrieval: { type: 'string' },
     reranked: { type: 'boolean' },
+    coverage: { type: 'number' },
     elapsedMs: { type: 'integer', required: true },
   },
 };
@@ -170,7 +171,8 @@ function renderReport(report: QueryReport): string {
     + (report.searched.queries === undefined ? '' : ' + fused(' + report.searched.queries + ' phrasings)');
   if (report.hits.length === 0) return 'no hits for "' + report.query + '" across ' + report.searched.chunks + ' chunks (' + report.searched.sources + ' sources, ' + mode + ')';
   const lines: string[] = [];
-  lines.push('query: ' + report.query + ' | ' + report.searched.chunks + ' chunks from ' + report.searched.sources + ' sources | ' + mode + ' | ' + report.elapsedMs + ' ms');
+  const coverage = report.coverage === undefined ? '' : ' | coverage ' + report.coverage.toFixed(2);
+  lines.push('query: ' + report.query + ' | ' + report.searched.chunks + ' chunks from ' + report.searched.sources + ' sources | ' + mode + coverage + ' | ' + report.elapsedMs + ' ms');
   report.hits.forEach((hit, index) => {
     const pages = hit.pageEnd === undefined ? ' p.' + hit.page : ' p.' + hit.page + '-' + hit.pageEnd;
     lines.push('[' + (index + 1) + '] ' + hit.path + pages + (hit.section ? ' §' + hit.section : '') + ' (' + hit.score + ')');

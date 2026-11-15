@@ -199,6 +199,23 @@ when the question's terms do not literally occur in the books (synonyms, transla
 product names, a Chinese question about an English chapter). English questions
 lose 3 page@5 hits with fusion for the same reason.
 
+### Two variants that did not survive the bench
+
+**Chapter pooling.** Each chunk was multiplied by its chapter's aggregate score
+(sum of the chapter's three best chunk scores, normalised to the best chapter).
+At strength 0.3 the 26-question set moved page@1 from 2 to 3 and MRR from 0.20 to
+0.22, but page@5 stayed 11/26 and zh2 fell from 9/12 to 7/12 (MRR 0.58 to 0.53);
+0.8 and 1.5 cost more. Reverted: the chapter is already counted twice, in the
+document weight and in the returned window, so a third copy over-rewards long
+chapters.
+
+**Coverage gate.** `coverage` is the IDF-weighted share of the question's tokens
+that occur anywhere in the index. Fusing only when coverage < 0.85 scores 21/38
+page@5 — identical to always fusing — while running the extra searches on 12 of
+38 questions; coverage < 0.7 gives 20/38. It is a cost knob, not a quality win, so
+it is not an automatic switch. The number is reported so the caller can retry with
+the books' terms when it is low.
+
 Hybrid retrieval (BM25 + e5-small) adds one page@8 and one window hit and nothing
 above: vector hits occupy at most the last `floor(topK × 0.25)` slots. The index
 is cached per vault in the process, which took a query from 3.6 s to ~0.45 s warm
