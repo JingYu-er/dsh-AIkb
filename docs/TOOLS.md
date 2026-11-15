@@ -165,6 +165,11 @@ one bad phrasing contributes a few tail positions instead of dominating. On the
 26-question Chinese set this lifted page@5 from 11/26 to 14/26, near@5 from 13 to
 16 and MRR from 0.20 to 0.34 for ~0.4–0.7 s per query; the top five slots are no
 longer reserved for the literal query, so a phrasing that matches better can win.
+A second, independently written 12-question set (five books the first set never
+used, questions phrased in the textbooks' own words) moves the other way: page@5
+9/12 -> 7/12 and MRR 0.58 -> 0.44. Over all 38 Chinese questions the gain is 20/38
+-> 21/38, so treat `queries` as drift compensation for wording the books do not
+share, not as a default step.
 A fused list fills every slot, which means vector hits are deliberately skipped
 (no query embedding is computed). Do not combine fusion with `rerank`: on the
 same set the pair scored 13/26 and MRR 0.27, worse than fusion alone, because the

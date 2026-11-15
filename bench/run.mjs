@@ -19,7 +19,7 @@ const value = (name, fallback) => {
 
 const ROOT = process.env.KB_VAULT ?? 'D:/JingYu/Desktop/ai-brain/MyObsidian';
 const WORKSPACE = process.env.KB_WORKSPACE ?? 'D:/JingYu/Desktop/ai-brain';
-const setNames = value('set', 'all') === 'all' ? ['zh', 'en'] : [value('set', 'zh')];
+const setNames = value('set', 'all') === 'all' ? ['zh', 'zh2', 'en', 'en2'] : [value('set', 'zh')];
 const mode = value('mode', 'bm25');
 const useMulti = flag('multi');
 const useRerank = flag('rerank');
@@ -29,6 +29,30 @@ const outPath = value('json', '');
 const verbose = flag('verbose');
 
 const fs = { root: ROOT, exists: async (rel) => existsSync(join(ROOT, rel)), readText: async (rel) => readFileSync(join(ROOT, rel), 'utf8') };
+
+/** Page lookup for the term@5 metric: catalog path -> source id -> page text. */
+const INDEX = join(ROOT, '.wiki/index');
+const catalog = JSON.parse(readFileSync(join(INDEX, 'catalog.json'), 'utf8'));
+const sourceIdByPath = new Map(Object.entries(catalog.sources).map(([id, meta]) => [meta.path, id]));
+const pageCache = new Map();
+function pageTextOf(hit) {
+  const sourceId = sourceIdByPath.get(hit.path);
+  if (sourceId === undefined) return '';
+  let pages = pageCache.get(sourceId);
+  if (pages === undefined) {
+    pages = new Map();
+    const file = join(INDEX, 'chunks', sourceId + '.jsonl');
+    if (existsSync(file)) {
+      for (const line of readFileSync(file, 'utf8').split('\n')) {
+        if (line.trim() === '') continue;
+        const chunk = JSON.parse(line);
+        pages.set(chunk.page, (pages.get(chunk.page) ?? '') + '\n' + chunk.text);
+      }
+    }
+    pageCache.set(sourceId, pages);
+  }
+  return pages.get(hit.page) ?? '';
+}
 
 function loadVectors() {
   const dir = join(ROOT, '.wiki/index/vectors');
@@ -79,7 +103,7 @@ for (const setName of setNames) {
   const rows = [];
   const detail = [];
   const startedAt = Date.now();
-  for (const [query, path, truth, topic, alt] of items) {
+  for (const [query, path, truth, topic, alt, terms] of items) {
     const options = {};
     if (vectors !== undefined) options.vectors = vectors;
     if (useMulti && typeof alt === 'string' && alt.trim() !== '') options.queries = [alt];
@@ -96,8 +120,8 @@ for (const setName of setNames) {
       if (vector !== undefined) options.queryVector = vector;
     }
     const result = await runQuery(fs, query, topK, options);
-    const item = { query, path, truth, topic, alt };
-    const scores = evaluate(item, result.hits);
+    const item = { query, path, truth, topic, alt, terms };
+    const scores = evaluate(item, result.hits, pageTextOf);
     rows.push(scores);
     const top = result.hits.slice(0, 3).map((hit) => (hit.path.split('/').pop() ?? '') + ' p.' + hit.page + (hit.pageEnd ? '-' + hit.pageEnd : ''));
     detail.push({ query, ok: scores.page5 === 1, ranks: top, firstPage: scores.firstPage, ms: result.elapsedMs, reranked: result.reranked === true });

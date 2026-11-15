@@ -1,0 +1,817 @@
+{
+  "config": {
+    "set": [
+      "zh",
+      "zh2",
+      "en",
+      "en2"
+    ],
+    "mode": "bm25",
+    "multi": true,
+    "rerank": false,
+    "expand": "none",
+    "topK": 8
+  },
+  "sets": {
+    "zh": {
+      "summary": {
+        "label": "zh",
+        "n": 26,
+        "page1": 5,
+        "page5": 14,
+        "page8": 14,
+        "near5": 16,
+        "book5": 21,
+        "window5": 14,
+        "topic8": 26,
+        "term5": 0,
+        "termN": 0,
+        "mrr": 0.338,
+        "ndcg10": 0.389,
+        "avgMs": 1044
+      },
+      "items": [
+        {
+          "query": "STM32F10xxx 的 CRC 计算单元怎么用",
+          "ok": true,
+          "ranks": [
+            "ST-STM32F10xxx 基于 Arm® 内核的 32 位高级 MCU.pdf p.66",
+            "ST-STM32F10xxx 基于 Arm® 内核的 32 位高级 MCU.pdf p.65-66",
+            "ST-STM32F103C8T6中文.pdf p.6"
+          ],
+          "firstPage": 0,
+          "ms": 6228,
+          "reranked": false
+        },
+        {
+          "query": "STM32 低功耗模式 Sleep Stop Standby 有什么区别",
+          "ok": false,
+          "ranks": [
+            "ST-STM32F10xxx 基于 Arm® 内核的 32 位高级 MCU.pdf p.844",
+            "STM32WB15CC.pdf p.26",
+            "STM32L021F4.pdf p.21"
+          ],
+          "firstPage": -1,
+          "ms": 914,
+          "reranked": false
+        },
+        {
+          "query": "USART 波特率寄存器 BRR 如何计算波特率",
+          "ok": false,
+          "ranks": [
+            "st-STM32C0x1 基于 Arm® 内核的 32 位高级 MCU.pdf p.665",
+            "ST-STM32F10xxx 基于 Arm® 内核的 32 位高级 MCU.pdf p.820",
+            "ST-STM32F10xxx 基于 Arm® 内核的 32 位高级 MCU.pdf p.798"
+          ],
+          "firstPage": -1,
+          "ms": 740,
+          "reranked": false
+        },
+        {
+          "query": "SysTick 校准值有什么用",
+          "ok": true,
+          "ranks": [
+            "ST-STM32F10xxx 基于 Arm® 内核的 32 位高级 MCU.pdf p.197",
+            "TI-MSPM0 L-Series 32MHz Microcontrollers.pdf p.391",
+            "TI-MSPM0 L-Series 32MHz Microcontrollers.pdf p.391"
+          ],
+          "firstPage": 0,
+          "ms": 741,
+          "reranked": false
+        },
+        {
+          "query": "MSP430 设备描述符表 Device Descriptor Table 是什么",
+          "ok": true,
+          "ranks": [
+            "TI-TRF79xxA和MSP430超低功耗收发.pdf p.19",
+            "MSP430FR4xx and MSP430FR2xx family.pdf p.57",
+            "MSP430 MCUs开发手册.pdf p.25"
+          ],
+          "firstPage": 1,
+          "ms": 853,
+          "reranked": false
+        },
+        {
+          "query": "MSP430 的 RST/NMI 复位引脚怎么配置",
+          "ok": true,
+          "ranks": [
+            "MSP430FR4xx and MSP430FR2xx family.pdf p.43",
+            "MSP430 MCUs开发手册.pdf p.22",
+            "MSP430FR4xx and MSP430FR2xx family.pdf p.43"
+          ],
+          "firstPage": 0,
+          "ms": 876,
+          "reranked": false
+        },
+        {
+          "query": "MSPM0 启动配置 boot configuration",
+          "ok": true,
+          "ranks": [
+            "TI-MSPM0 L-Series 32MHz Microcontrollers.pdf p.430",
+            "TI-MSPM0 L-Series 32MHz Microcontrollers.pdf p.19",
+            "TI-MSPM0 L 系列 MCU 硬件开发指南.pdf p.3"
+          ],
+          "firstPage": 1,
+          "ms": 908,
+          "reranked": false
+        },
+        {
+          "query": "MSPM0 时钟模块 CKM 的时钟源",
+          "ok": true,
+          "ranks": [
+            "TI-MSPM0 L-Series 32MHz Microcontrollers.pdf p.140",
+            "TI-MSPM0 L-Series 32MHz Microcontrollers.pdf p.140",
+            "MSPM0L130x混合信号微控制器.pdf p.38"
+          ],
+          "firstPage": 0,
+          "ms": 924,
+          "reranked": false
+        },
+        {
+          "query": "共射放大电路的静态工作点",
+          "ok": false,
+          "ranks": [
+            "7-模拟电子技术基础（第五版）高清版- 清华大学电子学教研组编、童诗白、华成英.pdf p.86",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.198-210",
+            "7-模拟电子技术基础（第五版）高清版- 清华大学电子学教研组编、童诗白、华成英.pdf p.88"
+          ],
+          "firstPage": -1,
+          "ms": 737,
+          "reranked": false
+        },
+        {
+          "query": "差分放大电路的共模抑制",
+          "ok": false,
+          "ranks": [
+            "ADI-新概念模拟电路.pdf p.351-352",
+            "ADI-新概念模拟电路.pdf p.352",
+            "14 电子技术基础 模拟部分 康华光 6.pdf p.303-307"
+          ],
+          "firstPage": -1,
+          "ms": 761,
+          "reranked": false
+        },
+        {
+          "query": "差分放大电路的分析",
+          "ok": false,
+          "ranks": [
+            "14 电子技术基础 模拟部分 康华光 6.pdf p.307",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.390",
+            "14 电子技术基础 模拟部分 康华光 6.pdf p.303-307"
+          ],
+          "firstPage": -1,
+          "ms": 741,
+          "reranked": false
+        },
+        {
+          "query": "负反馈对放大电路的影响",
+          "ok": false,
+          "ranks": [
+            "7-模拟电子技术基础（第五版）高清版- 清华大学电子学教研组编、童诗白、华成英.pdf p.268",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.374-375",
+            "7-模拟电子技术基础（第五版）高清版- 清华大学电子学教研组编、童诗白、华成英.pdf p.264"
+          ],
+          "firstPage": -1,
+          "ms": 856,
+          "reranked": false
+        },
+        {
+          "query": "积分电路的原理",
+          "ok": false,
+          "ranks": [
+            "14 电子技术基础 模拟部分 康华光 6.pdf p.55-58",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.392-394",
+            "12-电子技术基础.模拟部分.(康华光.第5版).pdf p.56"
+          ],
+          "firstPage": -1,
+          "ms": 733,
+          "reranked": false
+        },
+        {
+          "query": "small ripple approximation 小纹波近似",
+          "ok": false,
+          "ranks": [
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.247",
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.36",
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.226"
+          ],
+          "firstPage": -1,
+          "ms": 840,
+          "reranked": false
+        },
+        {
+          "query": "Cuk converter 的工作原理",
+          "ok": false,
+          "ranks": [
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.81",
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.674",
+            "14 电子技术基础 模拟部分 康华光 6.pdf p.526-530"
+          ],
+          "firstPage": -1,
+          "ms": 724,
+          "reranked": false
+        },
+        {
+          "query": "STM32 的 VBAT 引脚和电池备份域有什么作用",
+          "ok": true,
+          "ranks": [
+            "ST-STM32G431RB.pdf p.24",
+            "TI-MSPM0 L-Series 32MHz Microcontrollers.pdf p.603",
+            "ST-STM32F10xxx 基于 Arm® 内核的 32 位高级 MCU.pdf p.69"
+          ],
+          "firstPage": 2,
+          "ms": 927,
+          "reranked": false
+        },
+        {
+          "query": "STM32 RTC 时钟源 RTCSEL 可以选哪些",
+          "ok": true,
+          "ranks": [
+            "st-STM32C0x1 基于 Arm® 内核的 32 位高级 MCU.pdf p.129",
+            "ST-STM32F10xxx 基于 Arm® 内核的 32 位高级 MCU.pdf p.118",
+            "ST-STM32F10xxx 基于 Arm® 内核的 32 位高级 MCU.pdf p.151"
+          ],
+          "firstPage": 1,
+          "ms": 911,
+          "reranked": false
+        },
+        {
+          "query": "MSP430 看门狗定时器 WDT_A 的时钟源有哪些",
+          "ok": true,
+          "ranks": [
+            "MSP430 MCUs开发手册.pdf p.25",
+            "MSP430 MCUs开发手册.pdf p.16",
+            "TI-TRF79xxA和MSP430超低功耗收发.pdf p.15"
+          ],
+          "firstPage": 4,
+          "ms": 907,
+          "reranked": false
+        },
+        {
+          "query": "MSP430 的 eUSCI_A UART 模式怎么用",
+          "ok": true,
+          "ranks": [
+            "MSP430 MCUs开发手册.pdf p.25",
+            "MSP430 MCUs开发手册.pdf p.21",
+            "MSP430FR2xx_4xx_DriverLib_Users_Guide.pdf p.91-94"
+          ],
+          "firstPage": 3,
+          "ms": 945,
+          "reranked": false
+        },
+        {
+          "query": "ADA4505 的 rail-to-rail 输入输出和零交越失真是怎么回事",
+          "ok": true,
+          "ranks": [
+            "ADI-ADA4505.pdf p.1",
+            "ADI-ADA4505.pdf p.14-15",
+            "14 电子技术基础 模拟部分 康华光 6.pdf p.437-438"
+          ],
+          "firstPage": 1,
+          "ms": 1000,
+          "reranked": false
+        },
+        {
+          "query": "ADA4505 失调电压 offset voltage 最大是多少",
+          "ok": true,
+          "ranks": [
+            "ADI-ADA4505.pdf p.15",
+            "ADI-ADA4505.pdf p.6-13",
+            "ADI-新概念模拟电路.pdf p.343"
+          ],
+          "firstPage": 1,
+          "ms": 895,
+          "reranked": false
+        },
+        {
+          "query": "ICL7660 的振荡器频率 OSC 引脚接电容有什么影响",
+          "ok": false,
+          "ranks": [
+            "ADI-ICL7660.pdf p.8",
+            "ADI-ICL7660.pdf p.7",
+            "ICL7660M-TR中文.pdf p.2"
+          ],
+          "firstPage": -1,
+          "ms": 924,
+          "reranked": false
+        },
+        {
+          "query": "ICL7660 如何把正电压转换成负电压",
+          "ok": true,
+          "ranks": [
+            "ADI-ICL7660.pdf p.11",
+            "ADI-ICL7660.pdf p.1",
+            "ICL7660M-TR中文.pdf p.4"
+          ],
+          "firstPage": 0,
+          "ms": 885,
+          "reranked": false
+        },
+        {
+          "query": "current programmed control 电流编程控制是什么",
+          "ok": true,
+          "ranks": [
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.886",
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.728",
+            "ADI-模拟对话-2015-2016_合订.pdf p.107-109"
+          ],
+          "firstPage": 1,
+          "ms": 729,
+          "reranked": false
+        },
+        {
+          "query": "DCM 不连续导通模式的平均开关模型",
+          "ok": false,
+          "ranks": [
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.600",
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.604",
+            "TI-TPS54202.pdf p.12"
+          ],
+          "firstPage": -1,
+          "ms": 744,
+          "reranked": false
+        },
+        {
+          "query": "放大电路的频率响应",
+          "ok": false,
+          "ranks": [
+            "14 电子技术基础 模拟部分 康华光 6.pdf p.245",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.413-419",
+            "14 电子技术基础 模拟部分 康华光 6.pdf p.275"
+          ],
+          "firstPage": -1,
+          "ms": 707,
+          "reranked": false
+        }
+      ]
+    },
+    "zh2": {
+      "summary": {
+        "label": "zh2",
+        "n": 12,
+        "page1": 4,
+        "page5": 7,
+        "page8": 8,
+        "near5": 7,
+        "book5": 10,
+        "window5": 8,
+        "topic8": 12,
+        "term5": 11,
+        "termN": 12,
+        "mrr": 0.442,
+        "ndcg10": 0.497,
+        "avgMs": 736
+      },
+      "items": [
+        {
+          "query": "仪表放大器为什么适合直接接传感器前端",
+          "ok": true,
+          "ranks": [
+            "ADI-新概念模拟电路.pdf p.823-829",
+            "Ti-Analog Engineer`s Circuit Cookbook-Data Converters.pdf p.5",
+            "ADI-新概念模拟电路.pdf p.293"
+          ],
+          "firstPage": 2,
+          "ms": 717,
+          "reranked": false
+        },
+        {
+          "query": "反相放大电路里输入失调电压被放大多少倍",
+          "ok": true,
+          "ranks": [
+            "ADI-新概念模拟电路.pdf p.342-343",
+            "Ti-Analog Engineer`s Circuit Cookbook-Amplifiers.pdf p.254",
+            "ADI-新概念模拟电路.pdf p.343"
+          ],
+          "firstPage": 0,
+          "ms": 738,
+          "reranked": false
+        },
+        {
+          "query": "热电偶为什么适合测量上千摄氏度的高温",
+          "ok": true,
+          "ranks": [
+            "ADI-模拟对话-2015-2016_合订.pdf p.201-208",
+            "ADI-新概念模拟电路.pdf p.863-866",
+            "Ti-Analog Engineer`s Circuit Cookbook-Data Converters.pdf p.147-178"
+          ],
+          "firstPage": 1,
+          "ms": 721,
+          "reranked": false
+        },
+        {
+          "query": "二阶低通滤波器的 Q 值不同会造成什么差别",
+          "ok": true,
+          "ranks": [
+            "ADI-新概念模拟电路.pdf p.454",
+            "Ti-Analog Engineer`s Circuit Cookbook-Amplifiers.pdf p.169",
+            "ADI-新概念模拟电路.pdf p.453-454"
+          ],
+          "firstPage": 0,
+          "ms": 735,
+          "reranked": false
+        },
+        {
+          "query": "直接耦合多级放大电路为什么要把 NPN 和 PNP 管混合使用",
+          "ok": false,
+          "ranks": [
+            "7-模拟电子技术基础（第五版）高清版- 清华大学电子学教研组编、童诗白、华成英.pdf p.543",
+            "4-[晶体管电路设计(上)].铃木雅臣.2004年9月第一版.pdf p.154",
+            "8-新概念模拟电路1-Analog Circuit1.pdf p.73-74"
+          ],
+          "firstPage": -1,
+          "ms": 757,
+          "reranked": false
+        },
+        {
+          "query": "共模抑制比 KCMR 怎么定义",
+          "ok": false,
+          "ranks": [
+            "ADI-新概念模拟电路.pdf p.351-352",
+            "ADI-新概念模拟电路.pdf p.352",
+            "8-新概念模拟电路1-Analog Circuit1.pdf p.159-160"
+          ],
+          "firstPage": 6,
+          "ms": 732,
+          "reranked": false
+        },
+        {
+          "query": "运放的虚短和虚断是怎么来的",
+          "ok": false,
+          "ranks": [
+            "ADI-新概念模拟电路.pdf p.286-289",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.373-375",
+            "ADI-新概念模拟电路.pdf p.289"
+          ],
+          "firstPage": -1,
+          "ms": 701,
+          "reranked": false
+        },
+        {
+          "query": "射极跟随器用恒流源做负载有什么好处",
+          "ok": true,
+          "ranks": [
+            "4-[晶体管电路设计(上)].铃木雅臣.2004年9月第一版.pdf p.76",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.214-218",
+            "4-[晶体管电路设计(上)].铃木雅臣.2004年9月第一版.pdf p.77"
+          ],
+          "firstPage": 0,
+          "ms": 703,
+          "reranked": false
+        },
+        {
+          "query": "地弹是怎么产生的、会影响什么",
+          "ok": false,
+          "ranks": [
+            "ADI-新概念模拟电路.pdf p.439",
+            "NXP-PCA9685.pdf p.36-37",
+            "ADI-新概念模拟电路.pdf p.907-908"
+          ],
+          "firstPage": -1,
+          "ms": 705,
+          "reranked": false
+        },
+        {
+          "query": "眼图为什么能用来测量抖动",
+          "ok": true,
+          "ranks": [
+            "Hyperlynx仿真教程_eetop.cn（SIG007版）.pdf p.37",
+            "Hyperlynx仿真教程_eetop.cn（SIG007版）.pdf p.29",
+            "高速数字设计.pdf p.104"
+          ],
+          "firstPage": 2,
+          "ms": 723,
+          "reranked": false
+        },
+        {
+          "query": "电流镜做恒流源负载有什么作用",
+          "ok": false,
+          "ranks": [
+            "ADI-新概念模拟电路.pdf p.9-12",
+            "8-新概念模拟电路1-Analog Circuit1.pdf p.9",
+            "ADI-模拟对话-2014-2015_合订.pdf p.159"
+          ],
+          "firstPage": -1,
+          "ms": 730,
+          "reranked": false
+        },
+        {
+          "query": "ADC 采样保持电路前串联电阻 RISO 为什么不能太大",
+          "ok": true,
+          "ranks": [
+            "ADI-新概念模拟电路.pdf p.875-876",
+            "ADI-新概念模拟电路.pdf p.895",
+            "TI-高速数据转换.pdf p.15"
+          ],
+          "firstPage": 0,
+          "ms": 826,
+          "reranked": false
+        }
+      ]
+    },
+    "en": {
+      "summary": {
+        "label": "en",
+        "n": 17,
+        "page1": 10,
+        "page5": 13,
+        "page8": 13,
+        "near5": 16,
+        "book5": 17,
+        "window5": 13,
+        "topic8": 0,
+        "term5": 0,
+        "termN": 0,
+        "mrr": 0.667,
+        "ndcg10": 0.692,
+        "avgMs": 860
+      },
+      "items": [
+        {
+          "query": "State Kirchhoff voltage law for a series circuit loop",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.191-199",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.196-199",
+            "OpenStax-University-Physics-Vol2.pdf p.451-462"
+          ],
+          "firstPage": 0,
+          "ms": 1034,
+          "reranked": false
+        },
+        {
+          "query": "How do you find the Thevenin equivalent circuit of a network",
+          "ok": false,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.387-388",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.388",
+            "bogatin's practical guide to tratensmission line design and characterization for signal integrity applications.pdf p.95-96"
+          ],
+          "firstPage": -1,
+          "ms": 907,
+          "reranked": false
+        },
+        {
+          "query": "Norton theorem convert a circuit into a current source",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.384-386",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.383-386",
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.264-265"
+          ],
+          "firstPage": 0,
+          "ms": 840,
+          "reranked": false
+        },
+        {
+          "query": "How does the superposition theorem handle circuits with multiple sources",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.375-378",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.378",
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.198-199"
+          ],
+          "firstPage": 0,
+          "ms": 829,
+          "reranked": false
+        },
+        {
+          "query": "Voltage divider circuit formula for the drop across each resistor",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.183-188",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.201-202",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.377-378"
+          ],
+          "firstPage": 0,
+          "ms": 835,
+          "reranked": false
+        },
+        {
+          "query": "Capacitive reactance formula and how it changes with frequency",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.156-157",
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.96-100",
+            "OpenStax-University-Physics-Vol2.pdf p.681-690"
+          ],
+          "firstPage": 1,
+          "ms": 850,
+          "reranked": false
+        },
+        {
+          "query": "Calculate the resonant frequency of an LC circuit",
+          "ok": false,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.215-226",
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.220-226",
+            "bogatin's practical guide to tratensmission line design and characterization for signal integrity applications.pdf p.554-556"
+          ],
+          "firstPage": -1,
+          "ms": 1096,
+          "reranked": false
+        },
+        {
+          "query": "Transformer turns ratio primary secondary voltage and current",
+          "ok": true,
+          "ranks": [
+            "OpenStax-University-Physics-Vol2.pdf p.685-690",
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.244-247",
+            "OpenStax-University-Physics-Vol2.pdf p.678-680"
+          ],
+          "firstPage": 1,
+          "ms": 962,
+          "reranked": false
+        },
+        {
+          "query": "How does a common-emitter amplifier produce voltage gain",
+          "ok": false,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.210",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.209-210",
+            "Ti-Analog Engineer`s Circuit Cookbook-Amplifiers.pdf p.437"
+          ],
+          "firstPage": -1,
+          "ms": 801,
+          "reranked": false
+        },
+        {
+          "query": "Zener diode reverse breakdown voltage heavy doping",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.69-73",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.73",
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.94"
+          ],
+          "firstPage": 0,
+          "ms": 815,
+          "reranked": false
+        },
+        {
+          "query": "Voltage divider bias circuit for a bipolar transistor",
+          "ok": false,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.252-255",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.253-255",
+            "Ti-Precision Labs – Op Amps-Input Offset Voltage (VOS) & Input Bias Current(Ib) .pdf p.26-35"
+          ],
+          "firstPage": -1,
+          "ms": 819,
+          "reranked": false
+        },
+        {
+          "query": "DeMorgan theorem breaking a long bar in Boolean expressions",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol4-Digital.pdf p.203-208",
+            "Lessons-in-Electric-Circuits-Vol4-Digital.pdf p.205-208",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.372-373"
+          ],
+          "firstPage": 0,
+          "ms": 815,
+          "reranked": false
+        },
+        {
+          "query": "Karnaugh map simplification of a Boolean expression",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol4-Digital.pdf p.248-253",
+            "Lessons-in-Electric-Circuits-Vol4-Digital.pdf p.252-253",
+            "MPS-MP1605.pdf p.16"
+          ],
+          "firstPage": 0,
+          "ms": 777,
+          "reranked": false
+        },
+        {
+          "query": "J-K flip flop truth table and toggle behavior",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol4-Digital.pdf p.351-353",
+            "circuitikz.pdf p.191",
+            "Lessons-in-Electric-Circuits-Vol4-Digital.pdf p.324-325"
+          ],
+          "firstPage": 2,
+          "ms": 800,
+          "reranked": false
+        },
+        {
+          "query": "Gauss law electric flux through a closed surface",
+          "ok": true,
+          "ranks": [
+            "OpenStax-University-Physics-Vol2.pdf p.251-256",
+            "OpenStax-University-Physics-Vol2.pdf p.253-256",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.479"
+          ],
+          "firstPage": 0,
+          "ms": 811,
+          "reranked": false
+        },
+        {
+          "query": "RC circuit time constant charge and discharge",
+          "ok": true,
+          "ranks": [
+            "OpenStax-University-Physics-Vol2.pdf p.469-471",
+            "OpenStax-University-Physics-Vol2.pdf p.470-471",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.516-520"
+          ],
+          "firstPage": 0,
+          "ms": 819,
+          "reranked": false
+        },
+        {
+          "query": "Magnetic force on a moving charge right hand rule",
+          "ok": true,
+          "ranks": [
+            "OpenStax-University-Physics-Vol2.pdf p.494-497",
+            "OpenStax-University-Physics-Vol2.pdf p.495-497",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.477-479"
+          ],
+          "firstPage": 0,
+          "ms": 814,
+          "reranked": false
+        }
+      ]
+    },
+    "en2": {
+      "summary": {
+        "label": "en2",
+        "n": 5,
+        "page1": 3,
+        "page5": 3,
+        "page8": 3,
+        "near5": 4,
+        "book5": 5,
+        "window5": 3,
+        "topic8": 5,
+        "term5": 3,
+        "termN": 5,
+        "mrr": 0.6,
+        "ndcg10": 0.6,
+        "avgMs": 885
+      },
+      "items": [
+        {
+          "query": "How does the mesh current method solve a circuit",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.351-363",
+            "Lessons-in-Electric-Circuits-Vol1-DC.pdf p.355-363",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.520"
+          ],
+          "firstPage": 0,
+          "ms": 822,
+          "reranked": false
+        },
+        {
+          "query": "Why does inductive reactance increase with frequency",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.73-79",
+            "Lessons-in-Electric-Circuits-Vol2-AC.pdf p.94-95",
+            "OpenStax-University-Physics-Vol2.pdf p.681-690"
+          ],
+          "firstPage": 0,
+          "ms": 849,
+          "reranked": false
+        },
+        {
+          "query": "What is a JFET and how is its gate junction biased",
+          "ok": true,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.74-78",
+            "Lessons-in-Electric-Circuits-Vol3-Semiconductors.pdf p.75-78",
+            "TI-Analog Engineer`s Pocket Reference.pdf p.21"
+          ],
+          "firstPage": 0,
+          "ms": 889,
+          "reranked": false
+        },
+        {
+          "query": "Why is a CMOS inverter simpler than a TTL gate",
+          "ok": false,
+          "ranks": [
+            "Lessons-in-Electric-Circuits-Vol4-Digital.pdf p.86-89",
+            "Lessons-in-Electric-Circuits-Vol4-Digital.pdf p.89",
+            "ADI-ICL7660.pdf p.9"
+          ],
+          "firstPage": -1,
+          "ms": 959,
+          "reranked": false
+        },
+        {
+          "query": "How is magnetic flux through a surface defined",
+          "ok": false,
+          "ranks": [
+            "OpenStax-University-Physics-Vol2.pdf p.243-250",
+            "OpenStax-University-Physics-Vol2.pdf p.245-250",
+            "Fundamentals of Power Electronics 3rd Edition.pdf p.419"
+          ],
+          "firstPage": -1,
+          "ms": 837,
+          "reranked": false
+        }
+      ]
+    }
+  }
+}

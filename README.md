@@ -132,12 +132,13 @@ are reliable while the page number may drift.
 
 ## Retrieval quality
 
-Measured on the author's vault: 176 indexed books (3 of them OCR'd scans), 23,655
-page-anchored chunks, 26 questions (15 tuned, 11 held out). Truth pages come from
-raw PyMuPDF text search, never from the retrieval system itself. `topK = 8`, warm
-in-process index. Both question sets live in `bench/sets/`; `npm run bench --
---set all` reproduces the rows below, with `--multi`, `--rerank`, `--mode hybrid`
-and `--expand` as switches.
+Measured on the author's vault: 181 indexed books (5 of them OCR'd scans), 27,024
+page-anchored chunks, 43 questions in four sets (26 original Chinese, 12 added
+Chinese, 17 original English, 5 added English). Truth pages come from raw text
+search over the stored chunks, never from the retrieval system itself. `topK = 8`,
+warm in-process index. All sets live in `bench/sets/`; `npm run bench -- --set all`
+reproduces the rows below, with `--multi`, `--rerank`, `--mode hybrid` and
+`--expand` as switches.
 
 - **page@5** — a top-5 hit lands in the truth book within ±2 pages.
 - **near@5** — within ±10 pages (the answer is on the neighbouring spread).
@@ -171,6 +172,32 @@ preference that the phrasings had just widened. English questions lose instead o
 gain (page@1 13/17 → 10/17, page@5 16/17 → 13/17, MRR 0.85 → 0.67), because an
 English restatement adds vocabulary the textbook already uses — use one English
 query there.
+
+### Expanded sets: the fusion gain is not general
+
+The first 26 questions were written while fusion was being tuned, so s1 added 12
+more Chinese questions from five books the original set never touched (*新概念模拟
+电路* detail pages, 童诗白, 康华光, *晶体管电路设计(上)*, *高速数字设计*) and 5
+English ones (mesh current, inductive reactance, JFET, CMOS inverter, magnetic
+flux). Pages were found by exact phrase search over the stored chunks and verified
+by reading the page text afterwards. The new sets also score `term@5`: does the
+answer vocabulary ("巴特沃斯", "地弹", "噪声增益"…) appear on one of the top-5 pages.
+
+| Set | page@1 | page@5 | term@5 | MRR |
+| --- | --- | --- | --- | --- |
+| zh2 BM25 (12) | 6/12 | 9/12 | 11/12 | 0.58 |
+| zh2 fused (12) | 4/12 | 7/12 | 11/12 | 0.44 |
+| en2 BM25 (5) | 2/5 | 3/5 | 3/5 | 0.44 |
+| en2 fused (5) | 3/5 | 3/5 | 3/5 | 0.60 |
+
+Combined over all 38 Chinese questions, fusion moves page@5 from 20/38 (53%) to
+21/38 (55%) — it gains 3 on the original 26 and loses 2 on the new 12. Plain BM25
+already lands zh2 at 75% page@5 because those questions reuse the textbook's exact
+wording; the English translation then pulls in English books and neighbouring
+chapters. Treat `queries` as a tool for vocabulary drift, not a default: enable it
+when the question's terms do not literally occur in the books (synonyms, translated
+product names, a Chinese question about an English chapter). English questions
+lose 3 page@5 hits with fusion for the same reason.
 
 Hybrid retrieval (BM25 + e5-small) adds one page@8 and one window hit and nothing
 above: vector hits occupy at most the last `floor(topK × 0.25)` slots. The index
