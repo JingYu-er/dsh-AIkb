@@ -175,6 +175,38 @@ Input: `{ vaultPath?: string }`
 Output: `notes`, `elapsedMs`, `counts` (per rule plus `notes`),
 `findings[]` (`rule`, `severity`, `path`, `detail`).
 
+## kb_compile
+
+Turns raw inbox drafts into reviewable notes. This is the first half of the
+compile pipeline: it never touches `vault/`, and it writes beside the source so
+the original draft stays intact.
+
+For each draft (`inbox/**/*.md`; hidden folders and `inbox/_compiled/` are
+skipped):
+
+1. resolve `title` — existing frontmatter, else the first `# heading`, else the
+   filename (a leading `~` from Obsidian's sync-conflict suffix is dropped);
+2. ensure `type` — an existing valid `type`/`kind` is kept; otherwise it writes
+   `type: thought` and reports `typeInferred: true`, because a note must declare
+   its type (kind is never inferred from prose) before lint or promotion accepts
+   it;
+3. lift provenance — `来源: path#12`, `source: path p.12` and
+   `[x](y.pdf#page=7)` become a deduplicated `sources:` list; `[[wikilinks]]`
+   are collected into the report only, this tool never adds links;
+4. normalise the body — one H1 at the top, blank-line runs collapsed outside
+   fenced code, unknown frontmatter keys preserved in place.
+
+Output goes to `inbox/_compiled/<same relative path>`; `inPlace: true` overwrites
+the draft instead. A `compiledHash` (SHA-256 of the source) makes the pass
+idempotent: an unchanged draft is skipped unless `force` is set. All writes stay
+inside `inbox/`; anything else is `vault.write-denied`.
+
+Input: `{ vaultPath?, paths?, limit?, inPlace?, force?, dryRun? }`
+
+Output: `notes[]` (`path`, `output`, `title`, `type`, `typeInferred`, `sources`,
+`links`, `changes`, `skipped`, `written`, `error`), `totals` (`scanned`,
+`compiled`, `skipped`, `failed`), `dryRun`, `elapsedMs`.
+
 ## kb_suggest_links
 
 Read-only candidate links. Given two notes, it scores how much rare vocabulary
@@ -244,6 +276,7 @@ Output: `books[]` (`path`, `sha256`, `chunks`, `seconds`, `error`),
 | `vault.invalid-root` | Root is not an absolute path. |
 | `vault.write-denied` | Target is outside `inbox/` and `.wiki/`. |
 | `kb.writes-disabled` | Write requested while `allowWrites` is false. |
+| `compile.failed` | Draft compilation crashed; the per-note `error` carries the cause. |
 | `ingest.manifest-missing` | `.wiki/books.jsonl` absent; run `kb_inventory` with `write` first. |
 | `query.index-missing` | No catalog; run `kb_ingest` first. |
 | `embed.index-missing` | No catalog; run `kb_ingest` first. |
@@ -254,7 +287,6 @@ Output: `books[]` (`path`, `sha256`, `chunks`, `seconds`, `error`),
 
 ## Planned (not implemented)
 
-`kb_compile` (inbox drafts), `kb_suggest_links` (why-carrying link proposals),
-`kb_promote` (reviewed diff into `vault/`), `kb_lint` (link and frontmatter
-discipline). They are specified in `docs/ARCHITECTURE.md` and land after the
-read path is proven on a real vault.
+`kb_promote` (reviewed diff into `vault/`): it takes a compiled draft from
+`inbox/_compiled/`, shows the diff against the target note (or proposes a new
+path), and only writes after an explicit confirmation.

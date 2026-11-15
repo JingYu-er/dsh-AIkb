@@ -9,6 +9,7 @@ import type { PythonEnvReport } from './adapters/pdf/python-env.js';
 import { registerTool } from './tools/definition.js';
 import { createKbDoctorTool } from './tools/kb-doctor.tool.js';
 import { createKbEmbedTool } from './tools/kb-embed.tool.js';
+import { createKbCompileTool } from './tools/kb-compile.tool.js';
 import { createKbIngestTool } from './tools/kb-ingest.tool.js';
 import { createKbInventoryTool } from './tools/kb-inventory.tool.js';
 import { createKbLintTool } from './tools/kb-lint.tool.js';
@@ -168,6 +169,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     registerTool(ctx, createKbDoctorTool({ allowWrites, resolveRoot, inspectPython: () => pythonEnv(false) }));
     registerTool(ctx, createKbInventoryTool({ allowWrites, resolveRoot }));
     registerTool(ctx, createKbLintTool({ resolveRoot }));
+    registerTool(ctx, createKbCompileTool({ resolveRoot, allowWrites: () => allowWrites }));
     registerTool(ctx, createKbSuggestLinksTool({ resolveRoot }));
     registerTool(
       ctx,
@@ -206,5 +208,5 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     logBoot(workspaceRoot, 'apply-failed', error instanceof Error ? error.message : String(error));
     throw error;
   }
-  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_suggest_links kb_ingest kb_query kb_embed');
+  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_compile kb_suggest_links kb_ingest kb_query kb_embed');
 }
