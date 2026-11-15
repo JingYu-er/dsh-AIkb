@@ -69,6 +69,9 @@ function startWorker(options: RerankCallOptions): Worker | undefined {
         '--threads', String(options.threads ?? 12),
         '--batch', String(options.batch ?? 16),
         '--max-len', String(options.maxLen ?? DEFAULT_MAX_LEN),
+        // The worker exits by itself when this host disappears, including a hard kill that never
+        // runs the process 'exit' hook (a 700 MB model must not outlive the CLI that loaded it).
+        '--parent-pid', String(process.pid),
       ],
       {
         cwd: options.workspaceRoot,

@@ -9,7 +9,7 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path and the compile loop are implemented and tested (75 unit tests):
+MVP read path and the compile loop are implemented and tested (87 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
@@ -40,8 +40,9 @@ modified.
   `<workspaceRoot>/.kb/models/`. Everything runs locally; no model API, no tokens.
 - Optional reranking: `kb_query` can reorder its candidates with a local
   bge-reranker-base cross-encoder (279 MB quantized, same private venv, downloaded
-  on the first reranked query). Off by default: it costs ~2.4 s per warm query
-  (the first one also loads the model).
+  on the first reranked query). Off by default: it costs ~1.5–2 s per warm query
+  (the first one also loads the model) and it helps Chinese questions far more
+  than English ones — see [Retrieval quality](#retrieval-quality).
 - A vault: a directory containing `.obsidian/`
 
 (EPUB/DJVU parsers are not wired yet; `kb_ingest` reports them as errors.)
@@ -158,7 +159,39 @@ disabled on purpose.
 Hybrid retrieval (BM25 + e5-small) adds one page@8 and one window hit and nothing
 above: vector hits occupy at most the last `floor(topK × 0.25)` slots. The index
 is cached per vault in the process, which took a query from 3.6 s to ~0.45 s warm
-(the first query in a fresh process still pays the ~4 s build).
+(the first query in a fresh process still pays the build).
+
+### English books
+
+The same harness over five open-licensed English textbooks (*Lessons in Electric
+Circuits* vols 1–4, *OpenStax University Physics* vol 2): 2,987 pages, 3,369
+chunks, 17 questions whose truth pages were verified against the PDF text layer.
+
+| Set | page@1 | page@5 | near@5 | book@5 | MRR |
+| --- | --- | --- | --- | --- | --- |
+| BM25 (17) | 13/17 | 16/17 | 17/17 | 17/17 | 0.85 |
+| BM25 + rerank | 8/17 | 13/17 | 15/17 | 17/17 | 0.60 |
+
+English textbook prose repeats the query terms, so lexical retrieval already lands
+the right page; the cross-encoder then collapses a discussion that spans several
+pages onto the single page it scores highest (Norton → the next section,
+common-emitter → feedback) and loses page hits. Keep `rerank: true` for Chinese
+questions with vocabulary drift, not for English ones: at 512 tokens it also lost
+page hits, so this is not a truncation artifact.
+
+### Performance and memory
+
+- Cold start: the first query in a fresh process builds the index in ~6 s for
+  27,024 chunks (181 books); warm queries are ~0.4 s. Four concurrent queries in
+  one process serialize to ~1.1 s total (the scan runs on the event loop, not a
+  thread pool); four separate processes each pay the cold build (~8.7 s under CPU
+  contention).
+- Memory: the in-process index and vectors are ~600 MB RSS; four parallel CLI
+  processes are ~2.4 GB.
+- A warm rerank adds 1.2–2.2 s per query (the first reranked query in a process
+  also loads the 279 MB model, ~5–8 s). The Python worker exits with its host,
+  including a hard kill, through a parent-pid watchdog — it cannot leave a 600 MB
+  process behind.
 
 Growing the corpus to 176 books costs exact-page precision (near-duplicate
 textbooks and manuals compete) but never loses the topic. Hits are capped at two

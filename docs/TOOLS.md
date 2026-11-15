@@ -144,12 +144,18 @@ dominant failure — the right chapter but a page 5–30 off — because a passa
 merely repeats the words scores lower than the passage that answers them.
 Vector hits are deliberately left out of the candidate pool: on the 26-question
 set adding them dropped MRR from 0.30 to 0.19, since a drifted vector page
-displaces a lexically exact one. Passages are truncated to 128 tokens (a pair
+displaces a lexically exact one. The cross-encoder is tuned for Chinese
+questions: on 17 English textbook questions plain BM25 already scored page@1
+13/17 and MRR 0.85, while reranking fell to 8/17 and 0.60 (it collapses a
+multi-page discussion onto one page), so it is opt-in per query rather than a
+global default. Passages are truncated to 128 tokens (a pair
 costs ~9 ms there vs ~190 ms at 512) and the Python worker stays alive with the
 model loaded, so a warm rerank adds ~1.5–2 s (the first one in a process pays
 ~2 s more to load 279 MB). Any failure (model missing, process error, score
 count mismatch) silently keeps the lexical order and reports `reranked: false`;
-reranking never fails a query.
+reranking never fails a query. The worker is spawned with `--parent-pid` and exits
+within ~3 s if its host disappears (including a hard kill that never runs Node's
+`exit` hook), so no 600 MB Python process is left behind.
 
 Input: `{ query: string, topK?: number, expand?: "none" | "page" | "section", maxContextChars?: number, rerank?: boolean, vaultPath?: string }`
 

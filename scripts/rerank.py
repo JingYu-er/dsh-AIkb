@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import sys
+import threading
 import time
 
 import numpy as np
@@ -29,6 +30,33 @@ from tokenizers import Tokenizer
 MAX_LEN = 512
 MODEL_FILE = "model_quantized.onnx"
 TOKENIZER_FILE = "tokenizer.json"
+
+
+def parent_alive(pid):
+    """True while the host process that spawned this worker is still running."""
+    if os.name == "nt":
+        import ctypes
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+        if not handle:
+            return False
+        try:
+            return kernel32.WaitForSingleObject(handle, 0) == 0x102  # WAIT_TIMEOUT
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def watch_parent(pid, interval=3.0):
+    """Exit with the host: a killed CLI must not leave a 700 MB model process behind."""
+    while True:
+        time.sleep(interval)
+        if not parent_alive(pid):
+            os._exit(0)
 
 
 def load_session(model_dir, threads):
@@ -88,6 +116,8 @@ def answer(session, tokenizer, payload, batch_size):
 
 
 def serve(args):
+    if args.parent_pid:
+        threading.Thread(target=watch_parent, args=(args.parent_pid,), daemon=True).start()
     tokenizer = load_tokenizer(args.model_dir, args.max_len)
     session = load_session(args.model_dir, args.threads)
     batch = max(1, args.batch)
@@ -113,6 +143,7 @@ def main():
     parser.add_argument("--threads", type=int, default=12)
     parser.add_argument("--batch", type=int, default=16)
     parser.add_argument("--max-len", type=int, default=MAX_LEN)
+    parser.add_argument("--parent-pid", type=int, default=0)
     args = parser.parse_args()
 
     if args.serve:
