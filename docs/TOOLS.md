@@ -129,7 +129,9 @@ three hits per family are returned, so three editions of one textbook cannot
 crowd out the rest. The built index is cached in the process keyed by the catalog
 bytes, and mirrored to `.wiki/index/search-cache.bin` so the first query after a
 restart loads postings + chunk metadata (~0.7 s) instead of rebuilding (~6 s).
-The cache carries the catalog hash, the chunk count and the postings size; a
+The cache carries the catalog hash, the chunk count, the postings size and a
+sha256 of each source's chunk text, so a re-extraction that keeps the same
+chunk ids (a re-OCR, a parser change) still invalidates the postings; a
 mismatch is a miss, never a partial index. When the catalog only **appended**
 books (same sha256s and paths in the same order), the cached prefix is reused:
 only the new chunks are tokenized and their postings are merged into the cached

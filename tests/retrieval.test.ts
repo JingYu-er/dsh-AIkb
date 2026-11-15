@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createBm25, createBm25FromPostings, mergeBm25Postings } from '../src/domain/bm25.js';
-import { makeSearchCache, readSearchCache, writeSearchCache } from '../src/application/search-cache.js';
+import { makeSearchCache, readSearchCache, sourceTextHash, writeSearchCache } from '../src/application/search-cache.js';
 import { chunkPages } from '../src/domain/chunking.js';
 import { tokenize } from '../src/domain/text.js';
 
@@ -109,6 +109,13 @@ test('mergeBm25Postings scores an appended book like a full rebuild', () => {
   }
 });
 
+test('sourceTextHash notices re-extracted text under the same chunk ids', () => {
+  const before = sourceTextHash([{ id: 'a:1:0', text: '华中科技天学教授' }]);
+  const after = sourceTextHash([{ id: 'a:1:0', text: '华中科技大学教授' }]);
+  assert.notEqual(before, after);
+  assert.equal(sourceTextHash([{ id: 'a:1:0', text: 'same' }]), sourceTextHash([{ id: 'a:1:0', text: 'same' }]));
+});
+
 test('search cache round-trips through the binary format', async () => {
   const files = new Map<string, Uint8Array>();
   const fs = {
@@ -121,7 +128,7 @@ test('search cache round-trips through the binary format', async () => {
   const index = createBm25([{ id: 'a', text: '镜像电流源 参考电流' }]);
   const cache = makeSearchCache({
     catalogHash: 'h',
-    sources: [{ sha256: 's', path: 'p', pages: 1, family: 's' }],
+    sources: [{ sha256: 's', path: 'p', pages: 1, family: 's', textHash: sourceTextHash([{ id: 'a', text: '镜像电流源 参考电流' }]) }],
     chunks: [{ id: 'a', section: '', quality: 1, chapter: -1 }],
     chapters: [],
     byPage: [],

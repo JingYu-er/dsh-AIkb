@@ -1,6 +1,6 @@
 import { createBm25, createBm25FromPostings, mergeBm25Postings } from '../domain/bm25.js';
 import type { Bm25Document, Bm25Hit, Bm25Index } from '../domain/bm25.js';
-import { catalogHashOf, makeSearchCache, readSearchCacheUnchecked, writeSearchCache } from './search-cache.js';
+import { catalogHashOf, makeSearchCache, readSearchCacheUnchecked, sourceTextHash, writeSearchCache } from './search-cache.js';
 import type { SearchCache, SearchCacheChunk } from './search-cache.js';
 import { expandQuery } from '../domain/glossary.js';
 import type { GlossaryEntry } from '../domain/glossary.js';
@@ -200,6 +200,8 @@ interface SourceDoc {
   readonly path: string;
   readonly pages: number;
   readonly chunks: readonly StoredChunk[];
+  /** Cheap way to notice that a book was re-extracted without changing its chunk ids. */
+  readonly textHash: string;
 }
 
 /** Everything the build accumulates per chunk; shared by a full build and an append. */
@@ -312,7 +314,7 @@ function seedFromCache(
     const source = sources[index];
     const meta = cached.sources[index];
     if (source === undefined || meta === undefined) return undefined;
-    if (source.sha256 !== meta.sha256 || source.path !== meta.path) return undefined;
+    if (source.sha256 !== meta.sha256 || source.path !== meta.path || source.textHash !== meta.textHash) return undefined;
     const family = assignments.bySha.get(source.sha256)?.id ?? source.sha256;
     for (const chunk of source.chunks) {
       const stored = cached.chunks[cursor];
@@ -400,7 +402,7 @@ function restoreFromCache(
  */
 async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
   const catalog = JSON.parse(key) as Catalog;
-  const sources: { sha256: string; path: string; pages: number; chunks: StoredChunk[] }[] = [];
+  const sources: SourceDoc[] = [];
   for (const [sha256, source] of Object.entries(catalog.sources)) {
     const relPath = chunkFileOf(sha256);
     if (!(await fs.exists(relPath))) continue;
@@ -411,7 +413,7 @@ async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
     }
     chunks.sort((left, right) => left.page - right.page || chunkOrder(left.id) - chunkOrder(right.id));
     const maxPage = chunks.reduce((max, chunk) => Math.max(max, chunk.page), 0);
-    sources.push({ sha256, path: source.path, pages: source.pages > 0 ? source.pages : maxPage, chunks });
+    sources.push({ sha256, path: source.path, pages: source.pages > 0 ? source.pages : maxPage, chunks, textHash: sourceTextHash(chunks) });
   }
 
   const cached = await readSearchCacheUnchecked(fs);
@@ -421,7 +423,7 @@ async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
     const aligned = cached.sources.length === sources.length
       && cached.chunks.length === totalChunks
       && cached.postings.size === totalChunks
-      && cached.sources.every((source, index) => source.sha256 === sources[index]?.sha256);
+      && cached.sources.every((source, index) => source.sha256 === sources[index]?.sha256 && source.textHash === sources[index]?.textHash);
     if (aligned) {
       const restored = restoreFromCache(cached, sources, key);
       if (restored !== undefined) {
@@ -480,6 +482,7 @@ async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
       path: source.path,
       pages: source.pages,
       family: assignments.bySha.get(source.sha256)?.id ?? source.sha256,
+      textHash: source.textHash,
     })),
     chunks: chunkMeta,
     chapters,

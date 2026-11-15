@@ -9,13 +9,15 @@ import type { Bm25Postings } from '../domain/bm25.js';
  * `.wiki/index/`, next to the chunks it derives from, and is never part of the vault content.
  */
 export const SEARCH_CACHE_PATH = '.wiki/index/search-cache.bin';
-const FORMAT_VERSION = 1;
+const FORMAT_VERSION = 2;
 
 export interface SearchCacheSource {
   readonly sha256: string;
   readonly path: string;
   readonly pages: number;
   readonly family: string;
+  /** Changes when the extracted text changes, even if the file hash and chunk ids do not. */
+  readonly textHash: string;
 }
 
 export interface SearchCacheChunk {
@@ -57,6 +59,21 @@ export interface SearchCache {
 
 export function catalogHashOf(catalogText: string): string {
   return createHash('sha256').update(catalogText).digest('hex');
+}
+
+/**
+ * Fingerprint of one source's chunk text, in build order. Re-OCRing or re-extracting a PDF keeps
+ * the file hash and the chunk ids, so this is the only signal that the cached postings are stale.
+ */
+export function sourceTextHash(chunks: readonly { readonly id: string; readonly text: string }[]): string {
+  const hash = createHash('sha256');
+  for (const chunk of chunks) {
+    hash.update(chunk.id);
+    hash.update('|');
+    hash.update(chunk.text);
+    hash.update('|');
+  }
+  return hash.digest('hex');
 }
 
 /** Any read failure (missing file, old format, truncated write) is a cache miss, never an error. */

@@ -253,7 +253,9 @@ artifact.
 
 - Cold start: a fresh process loads the on-disk index cache
   (`.wiki/index/search-cache.bin`, ~49 MB, a v8-serialized inverted index plus
-  chunk metadata) in ~0.7 s for 27,024 chunks (181 books). After an ingest that
+  chunk metadata) in ~0.9 s for 27,024 chunks (181 books); ~0.2 s of that is
+  re-hashing each source's chunk text, which is how a re-extraction that keeps
+  the same chunk ids is noticed. After an ingest that
   only appends books, the next query reuses the cached prefix and tokenizes just
   the new chunks — 0.49 s versus 2.79 s for a full rebuild on a 60-book probe
   corpus with one new book — then rewrites the cache. A catalog that reorders or
@@ -262,7 +264,7 @@ artifact.
   that fails validation is ignored rather than trusted, so a half-written file
   only costs one rebuild. Warm queries are ~0.3 s. Four concurrent queries in one
   process serialize to ~1.1 s total (the scan runs on the event loop, not a
-  thread pool); four separate processes each load the cache (~0.7 s) instead of
+  thread pool); four separate processes each load the cache (~0.9 s) instead of
   rebuilding.
 - Memory: the in-process index and vectors are ~600 MB RSS; four parallel CLI
   processes are ~2.4 GB.
@@ -290,6 +292,16 @@ Known gaps and measured negative results:
   ("通用定时器 → TIM3"). Frequency-gated pairs were neutral (11/26). Set
   `glossaryExpansion: true` only for a library that mixes Chinese questions with
   English books.
+- Re-OCR of the three scanned books at a higher DPI does **not** pay off for
+  retrieval. Their chunk text comes from RapidOCR at 200 dpi (1,434 pages,
+  636–732 chars/page, artefacts like 放太/性熊/天学). At 300 dpi those three
+  characters are read correctly (400 dpi also fixes the small print on a title
+  page), but the number of answer terms on the truth pages is unchanged — the
+  200 dpi text already contained 直接耦合, 差模, 共模, 恒流源. Replacing the
+  truth pages with 300 dpi text in a variant index moved zh2 page@5 from 9/12
+  to 8/12 (MRR 0.58 → 0.57), and a full re-OCR costs hours (~20–50 s/page on
+  this machine). Not adopted: the remaining lever would be a stronger
+  recognizer, not a higher render DPI.
 - A heavier layout extractor (MinerU / Docling) is **not** worth its footprint:
   on the 12-question set's answer pages, 11/12 chunks already contain every
   answer term, and BM25 is insensitive to formula and table layout — the
