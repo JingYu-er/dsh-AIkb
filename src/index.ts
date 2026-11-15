@@ -6,6 +6,8 @@ import { ensureRerankEnv } from './adapters/embeddings/rerank-env.js';
 import type { RerankEnvReport } from './adapters/embeddings/rerank-env.js';
 import { ensureOcrEnv } from './adapters/pdf/ocr-env.js';
 import type { OcrEnvReport } from './adapters/pdf/ocr-env.js';
+import { ensureOcrModel } from './adapters/pdf/ocr-model.js';
+import type { OcrModelReport } from './adapters/pdf/ocr-model.js';
 import { ensurePythonEnv } from './adapters/pdf/python-env.js';
 import type { PythonEnvReport } from './adapters/pdf/python-env.js';
 import { registerTool } from './tools/definition.js';
@@ -50,6 +52,10 @@ export interface KbPluginConfig {
   readonly ocrWorkers?: number;
   /** OCR only the first N pages of each scanned book (a cheap first experiment). */
   readonly ocrMaxPages?: number;
+  /** Directory holding the PP-OCRv4 recognizer. Default <workspaceRoot>/.kb/models/ocr. */
+  readonly ocrModelDir?: string;
+  /** Base URL the PP-OCRv4 graph is fetched from on first OCR use. Default: hf-mirror. */
+  readonly ocrModelUrl?: string;
   /** Local embeddings for hybrid search. On by default; kb_embed builds them on demand. */
   readonly embedEnabled?: boolean;
   /** Directory holding tokenizer.json + model_quantized.onnx. Default <workspaceRoot>/.kb/models/multilingual-e5-small. */
@@ -159,6 +165,19 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     ocrEnvOnce = pending;
     return pending;
   };
+  /** One 10.8 MB graph; fetched on the first OCR run, then reused. Missing it keeps v3 working. */
+  let ocrModelOnce: Promise<OcrModelReport> | undefined;
+  const ocrModel = (): Promise<OcrModelReport> => {
+    if (ocrModelOnce !== undefined) return ocrModelOnce;
+    const pending = ensureOcrModel({
+      workspaceRoot,
+      modelDir: config.ocrModelDir ?? '',
+      modelUrl: config.ocrModelUrl ?? '',
+      bootstrap: true,
+    });
+    ocrModelOnce = pending;
+    return pending;
+  };
   const ocrEnabled = config.ocrEnabled !== false;
 
   /** The e5-small model is downloaded once per machine, like the venv. */
@@ -213,7 +232,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
         pythonLibPath: config.pythonLibPath ?? '',
         workspaceRoot,
         ocrWorkers: config.ocrWorkers !== undefined && config.ocrWorkers > 0 ? config.ocrWorkers : 4,
-        ...(config.ocrEnabled === false ? {} : { prepareOcr: () => ocrEnv() }),
+        ...(config.ocrEnabled === false ? {} : { prepareOcr: () => ocrEnv(), prepareOcrModel: () => ocrModel() }),
         ...(config.ocrMaxPages !== undefined ? { ocrMaxPages: config.ocrMaxPages } : {}),
       }),
     );

@@ -21,11 +21,16 @@ import numpy as np
 _engine = None
 
 
-def _init_worker():
+def _init_worker(rec_model='', det_model=''):
     global _engine
     from rapidocr_onnxruntime import RapidOCR
 
-    _engine = RapidOCR()
+    kwargs = {}
+    if rec_model:
+        kwargs['rec_model_path'] = rec_model
+    if det_model:
+        kwargs['det_model_path'] = det_model
+    _engine = RapidOCR(**kwargs) if kwargs else RapidOCR()
 
 
 def _render(pdf_path, page_index, dpi):
@@ -149,6 +154,8 @@ def main():
     parser.add_argument('--last', type=int, default=0, help='0 = last page')
     parser.add_argument('--workers', type=int, default=4)
     parser.add_argument('--dpi', type=int, default=200)
+    parser.add_argument('--rec-model', default='', help='alternative recognizer ONNX graph (PP-OCRv4)')
+    parser.add_argument('--det-model', default='', help='alternative detector ONNX graph')
     parser.add_argument('--progress-every', type=int, default=20)
     options = parser.parse_args()
 
@@ -162,6 +169,7 @@ def main():
     print(json.dumps({
         'event': 'start', 'pages': total, 'first': first, 'last': last,
         'todo': len(pending), 'resumed': len(done), 'workers': options.workers,
+        'rec_model': options.rec_model, 'det_model': options.det_model,
     }), flush=True)
     if not pending:
         print(json.dumps({'event': 'done', 'pages': last - first + 1, 'ocr': len(done)}), flush=True)
@@ -170,12 +178,14 @@ def main():
     tasks = [(options.pdf, page - 1, options.dpi) for page in pending]
     written = 0
     if options.workers <= 1:
-        _init_worker()
+        _init_worker(options.rec_model, options.det_model)
         results = map(_ocr_page, tasks)
     else:
         import multiprocessing as mp
 
-        pool = mp.Pool(processes=options.workers, initializer=_init_worker)
+        # Windows spawns workers, so the model paths must travel through initargs.
+        pool = mp.Pool(processes=options.workers, initializer=_init_worker,
+                       initargs=(options.rec_model, options.det_model))
         results = pool.imap_unordered(_ocr_page, tasks, chunksize=1)
 
     for page, text in results:

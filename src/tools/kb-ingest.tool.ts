@@ -5,6 +5,7 @@ import { NodeVaultFs } from '../adapters/fs/node-vault-fs.js';
 import { NodeVaultWriter } from '../adapters/fs/node-vault-writer.js';
 import { ocrJournalPath, ocrPdf } from '../adapters/pdf/ocr.js';
 import type { OcrEnvReport } from '../adapters/pdf/ocr-env.js';
+import type { OcrModelReport } from '../adapters/pdf/ocr-model.js';
 import { extractPdf } from '../adapters/pdf/pymupdf.js';
 import type { PythonEnvReport } from '../adapters/pdf/python-env.js';
 import { emptyIngestReport, runIngest } from '../application/kb-ingest.js';
@@ -31,6 +32,8 @@ export interface KbIngestDeps {
   readonly workspaceRoot: string;
   /** Resolves RapidOCR (installing it on first use); absent turns the OCR fallback off. */
   readonly prepareOcr?: () => Promise<OcrEnvReport>;
+  /** Resolves the PP-OCRv4 recognizer; absent keeps RapidOCR's bundled v3 graph. */
+  readonly prepareOcrModel?: () => Promise<OcrModelReport>;
   readonly ocrWorkers: number;
   /** Page cap per book for the first OCR experiment; absent means the whole book. */
   readonly ocrMaxPages?: number;
@@ -74,6 +77,14 @@ const OUTPUT_SCHEMA: SchemaNode = {
         pythonPath: { type: 'string', required: true },
         rapidocrVersion: { type: 'string', required: true },
         installed: { type: 'boolean', required: true },
+        model: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            path: { type: 'string', required: true },
+            downloaded: { type: 'boolean', required: true },
+          },
+        },
       },
     },
     glossary: {
@@ -126,6 +137,9 @@ function renderReport(report: IngestReport): string {
   }
   if (report.ocr !== undefined) {
     lines.push('ocr: RapidOCR ' + report.ocr.rapidocrVersion + ' via ' + report.ocr.pythonPath + (report.ocr.installed ? ' (installed just now)' : ''));
+    if (report.ocr.model !== undefined) {
+      lines.push('ocr model: PP-OCRv4 ' + report.ocr.model.path + (report.ocr.model.downloaded ? ' (downloaded just now)' : ''));
+    }
   }
   if (report.glossary !== undefined) {
     lines.push('glossary: ' + report.glossary.entries + ' term pair(s), ' + report.glossary.added + ' new');
@@ -179,6 +193,12 @@ export function createKbIngestTool(deps: KbIngestDeps) {
           if (!ocrEnv.ok) {
             throw new DomainError('pdf.ocr-unavailable', 'RapidOCR is unavailable and the automatic setup failed: ' + (ocrEnv.errors.join(' | ') || 'unknown reason'));
           }
+          let recModelPath = '';
+          if (deps.prepareOcrModel !== undefined) {
+            const model = await deps.prepareOcrModel();
+            ocrInfo = { ...ocrInfo, model: { path: model.path, downloaded: model.downloaded } };
+            if (model.ok) recModelPath = model.path;
+          }
           const pythonPath = ocrEnv.pythonPath;
           const workers = deps.ocrWorkers;
           const maxPages = deps.ocrMaxPages;
@@ -190,6 +210,7 @@ export function createKbIngestTool(deps: KbIngestDeps) {
               pdfPath: nativePath(root, entry.path),
               journalPath: ocrJournalPath(deps.workspaceRoot, entry.sha256),
               workers,
+              ...(recModelPath !== '' ? { recModelPath } : {}),
               ...(maxPages !== undefined && maxPages > 0 ? { lastPage: maxPages } : {}),
             });
             if (!outcome.ok) throw new DomainError('pdf.ocr-failed', entry.path + ': ' + outcome.error + ' | ' + outcome.stderr.slice(-500));

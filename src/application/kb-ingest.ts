@@ -75,6 +75,11 @@ export interface IngestReport {
     readonly pythonPath: string;
     readonly rapidocrVersion: string;
     readonly installed: boolean;
+    /** PP-OCRv4 recognizer; absent when RapidOCR's bundled v3 graph ran. */
+    readonly model?: {
+      readonly path: string;
+      readonly downloaded: boolean;
+    };
   };
   /** Bilingual vocabulary learned from this run; feeds query expansion on the next search. */
   readonly glossary?: {

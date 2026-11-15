@@ -25,6 +25,10 @@ export interface OcrBookOptions {
   /** Page journal (JSONL); derived data that lives outside the notes tree. */
   readonly journalPath: string;
   readonly workers?: number;
+  /** PP-OCRv4 recognizer; RapidOCR's bundled v3 graph is used when this is absent. */
+  readonly recModelPath?: string;
+  /** Alternative detector graph; the bundled v3 detector is used when this is absent. */
+  readonly detModelPath?: string;
   /** 1-based, inclusive. lastPage 0 means "to the end". */
   readonly firstPage?: number;
   readonly lastPage?: number;
@@ -91,6 +95,8 @@ export async function ocrPdf(options: OcrBookOptions, run: CommandRunner = defau
     '--last', String(options.lastPage ?? 0),
     '--workers', String(options.workers ?? 4),
     '--dpi', String(options.dpi ?? 200),
+    ...(options.recModelPath !== undefined && options.recModelPath !== '' ? ['--rec-model', options.recModelPath] : []),
+    ...(options.detModelPath !== undefined && options.detModelPath !== '' ? ['--det-model', options.detModelPath] : []),
   ];
   const outcome = await run(options.pythonPath, args, {
     env: pythonEnvOf(options.workspaceRoot),

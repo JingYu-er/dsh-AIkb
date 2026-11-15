@@ -62,7 +62,12 @@ chunks removed, so a stale entry cannot keep haunting queries.
 
 Scanned books fall back to local OCR: when the text layer fails that density
 gate, the source is rendered at 200 dpi and read by RapidOCR (ONNX, on this
-machine), which costs CPU time but no tokens. Paragraphs are rebuilt in reading
+machine), which costs CPU time but no tokens. The recogniser is **PP-OCRv4**:
+one 10.8 MB ONNX graph in `<workspaceRoot>/.kb/models/ocr`, fetched from the
+HF mirror on first use (`ocrModelDir` / `ocrModelUrl` override it). It reads
+the scans noticeably better than RapidOCR's bundled v3 weights at the same DPI
+(放太→放大, 性熊→性能, 王程→工程) while retrieval stays flat; when the download
+fails the bundled v3 graph runs instead, so OCR never blocks an ingest. Paragraphs are rebuilt in reading
 order, including a two-column check; pages are journaled per content hash in
 `<workspaceRoot>/temp/ocr/<sha256>.jsonl`, so an interrupted run resumes instead
 of restarting. `ocrMaxPages` (plugin config) caps a first experiment, and
@@ -73,7 +78,8 @@ should be verified against the page image.
 Output: `ok`, `books[]` (`path`, `sha256`, `pages`, `chunks`, `tokens`,
 `status`, `ocrUsed?`, `error?`), `totals`, `indexPath`, `elapsedMs`, `python`
 (`pythonPath`, `source`, `venvPath`, `bootstrapped`), when OCR was resolved
-`ocr` (`pythonPath`, `rapidocrVersion`, `installed`), and `glossary`
+`ocr` (`pythonPath`, `rapidocrVersion`, `installed`, `model` with `path` and
+`downloaded`), and `glossary`
 (`entries`, `added`). The glossary is a per-vault by-product: bilingual pairs
 harvested from the page text ("静态工作点 (quiescent operating point)") are merged
 into `.wiki/index/glossary.json`, capped at 4,000 entries and ranked by how many

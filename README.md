@@ -292,16 +292,16 @@ Known gaps and measured negative results:
   ("通用定时器 → TIM3"). Frequency-gated pairs were neutral (11/26). Set
   `glossaryExpansion: true` only for a library that mixes Chinese questions with
   English books.
-- Re-OCR of the three scanned books at a higher DPI does **not** pay off for
-  retrieval. Their chunk text comes from RapidOCR at 200 dpi (1,434 pages,
-  636–732 chars/page, artefacts like 放太/性熊/天学). At 300 dpi those three
-  characters are read correctly (400 dpi also fixes the small print on a title
-  page), but the number of answer terms on the truth pages is unchanged — the
-  200 dpi text already contained 直接耦合, 差模, 共模, 恒流源. Replacing the
-  truth pages with 300 dpi text in a variant index moved zh2 page@5 from 9/12
-  to 8/12 (MRR 0.58 → 0.57), and a full re-OCR costs hours (~20–50 s/page on
-  this machine). Not adopted: the remaining lever would be a stronger
-  recognizer, not a higher render DPI.
+- The three scanned books' text comes from local OCR at 200 dpi (1,434 pages,
+  636–732 chars/page). Raising the render DPI is **not** the lever: at 300 dpi
+  the recogniser reads 放太/性熊 correctly, but the truth pages already
+  contained every answer term, and replacing them in a variant index moved zh2
+  page@5 from 9/12 to 8/12 (MRR 0.58 → 0.57); a full re-OCR also costs hours
+  (~20–50 s/page). Swapping in **PP-OCRv4**'s recogniser at the same 200 dpi
+  does read the scans better — 放太→放大, 性熊→性能, 王程→工程 — while retrieval
+  stays flat (zh2 page@5 9/12, MRR 0.575), so v4 is now the default graph: one
+  10.8 MB ONNX file fetched on first OCR use, with RapidOCR's bundled v3 graph
+  as the fallback when that download fails.
 - A heavier layout extractor (MinerU / Docling) is **not** worth its footprint:
   on the 12-question set's answer pages, 11/12 chunks already contain every
   answer term, and BM25 is insensitive to formula and table layout — the
