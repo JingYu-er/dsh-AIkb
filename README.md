@@ -253,13 +253,17 @@ artifact.
 
 - Cold start: a fresh process loads the on-disk index cache
   (`.wiki/index/search-cache.bin`, ~49 MB, a v8-serialized inverted index plus
-  chunk metadata) in ~0.7 s for 27,024 chunks (181 books); the first query after
-  an ingest or catalog change rebuilds the index in ~6 s and rewrites the cache.
-  A cache file that fails validation (catalog hash, chunk count, postings size)
-  is ignored rather than trusted, so a half-written file only costs one rebuild.
-  Warm queries are ~0.3 s. Four concurrent queries in one process serialize to
-  ~1.1 s total (the scan runs on the event loop, not a thread pool); four separate
-  processes each load the cache (~0.7 s) instead of rebuilding.
+  chunk metadata) in ~0.7 s for 27,024 chunks (181 books). After an ingest that
+  only appends books, the next query reuses the cached prefix and tokenizes just
+  the new chunks — 0.49 s versus 2.79 s for a full rebuild on a 60-book probe
+  corpus with one new book — then rewrites the cache. A catalog that reorders or
+  drops sources, or a cache that fails validation (catalog hash, chunk ids,
+  postings size), falls back to a full rebuild (~6 s for 181 books). A cache file
+  that fails validation is ignored rather than trusted, so a half-written file
+  only costs one rebuild. Warm queries are ~0.3 s. Four concurrent queries in one
+  process serialize to ~1.1 s total (the scan runs on the event loop, not a
+  thread pool); four separate processes each load the cache (~0.7 s) instead of
+  rebuilding.
 - Memory: the in-process index and vectors are ~600 MB RSS; four parallel CLI
   processes are ~2.4 GB.
 - A warm rerank adds 1.2–2.2 s per query (the first reranked query in a process

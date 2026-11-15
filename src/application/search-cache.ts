@@ -61,12 +61,25 @@ export function catalogHashOf(catalogText: string): string {
 
 /** Any read failure (missing file, old format, truncated write) is a cache miss, never an error. */
 export async function readSearchCache(fs: SearchCacheFs, catalogHash: string): Promise<SearchCache | undefined> {
+  const cache = await readSearchCacheUnchecked(fs);
+  if (cache === undefined || cache.catalogHash !== catalogHash) return undefined;
+  return cache;
+}
+
+/**
+ * The same read without the catalog check. A changed catalog is exactly the case where an append
+ * can reuse the cached postings, so the caller inspects the source list itself to decide.
+ */
+export async function readSearchCacheUnchecked(fs: SearchCacheFs): Promise<SearchCache | undefined> {
   if (fs.readBinary === undefined) return undefined;
   try {
     if (!(await fs.exists(SEARCH_CACHE_PATH))) return undefined;
     const cache = deserialize(await fs.readBinary(SEARCH_CACHE_PATH)) as SearchCache;
-    if (cache.v !== FORMAT_VERSION || cache.catalogHash !== catalogHash) return undefined;
-    if (!Array.isArray(cache.chunks) || cache.postings === undefined) return undefined;
+    if (cache === null || typeof cache !== 'object') return undefined;
+    if (cache.v !== FORMAT_VERSION) return undefined;
+    if (typeof cache.catalogHash !== 'string') return undefined;
+    if (!Array.isArray(cache.sources) || !Array.isArray(cache.chunks) || !Array.isArray(cache.chapters)) return undefined;
+    if (cache.postings === undefined || cache.postings.size !== cache.chunks.length) return undefined;
     return cache;
   } catch {
     return undefined;

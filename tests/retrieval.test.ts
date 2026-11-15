@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createBm25, createBm25FromPostings } from '../src/domain/bm25.js';
+import { createBm25, createBm25FromPostings, mergeBm25Postings } from '../src/domain/bm25.js';
 import { makeSearchCache, readSearchCache, writeSearchCache } from '../src/application/search-cache.js';
 import { chunkPages } from '../src/domain/chunking.js';
 import { tokenize } from '../src/domain/text.js';
@@ -85,6 +85,28 @@ test('createBm25FromPostings reproduces scores and coverage', () => {
   const restored = createBm25FromPostings(index.toPostings(), { documentWeight: weight }, documents);
   assert.deepEqual(restored.search('电流源 镜像 增益'), index.search('电流源 镜像 增益'));
   assert.equal(restored.coverage('电流源 增益'), index.coverage('电流源 增益'));
+});
+
+test('mergeBm25Postings scores an appended book like a full rebuild', () => {
+  const first = [
+    { id: 'a', text: '镜像电流源 参考电流 匹配晶体管' },
+    { id: 'b', text: '运放的增益带宽积与压摆率' },
+  ];
+  const second = [
+    { id: 'c', text: '开关电源的纹波与布局 电流源' },
+    { id: 'd', text: '锁相环的相位噪声与杂散' },
+  ];
+  const weight = (document: { id: string }): number => (document.id === 'c' ? 1.3 : 1);
+  const merged = createBm25FromPostings(
+    mergeBm25Postings(createBm25(first).toPostings(), createBm25(second).toPostings()),
+    { documentWeight: weight },
+    [...first, ...second],
+  );
+  const whole = createBm25([...first, ...second], { documentWeight: weight });
+  for (const query of ['电流源', '增益 纹波', '锁相环', '不相干的词']) {
+    assert.deepEqual(merged.search(query), whole.search(query));
+    assert.equal(merged.coverage(query), whole.coverage(query));
+  }
 });
 
 test('search cache round-trips through the binary format', async () => {

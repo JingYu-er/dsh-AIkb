@@ -134,6 +134,76 @@ function compressPostings(
 }
 
 /**
+ * Append one snapshot to another. The addition's document indexes are shifted by `base.size`; both
+ * inputs are term-sorted, so this is a linear merge. Term frequencies, document lengths and corpus
+ * size stay exact, so the merged index scores exactly like a full rebuild — which is what lets an
+ * ingest add a book without re-tokenising the other 180.
+ */
+export function mergeBm25Postings(base: Bm25Postings, addition: Bm25Postings): Bm25Postings {
+  if (addition.size === 0) return base;
+  const shift = base.size;
+  const size = base.size + addition.size;
+  const terms: string[] = [];
+  const values: number[] = [];
+  const counts: number[] = [];
+  const df: number[] = [];
+  const emit = (from: Bm25Postings, termIndex: number, offset: number): void => {
+    const start = from.offsets[termIndex] as number;
+    const end = from.offsets[termIndex + 1] as number;
+    for (let at = start; at < end; at += 1) {
+      values.push((from.values[at] as number) + offset);
+      counts.push(from.counts[at] as number);
+    }
+  };
+  let left = 0;
+  let right = 0;
+  while (left < base.terms.length || right < addition.terms.length) {
+    const baseTerm = base.terms[left];
+    const additionTerm = addition.terms[right];
+    if (baseTerm !== undefined && (additionTerm === undefined || baseTerm < additionTerm)) {
+      terms.push(baseTerm);
+      df.push(base.df[left] as number);
+      emit(base, left, 0);
+      left += 1;
+    } else if (additionTerm !== undefined && (baseTerm === undefined || additionTerm < baseTerm)) {
+      terms.push(additionTerm);
+      df.push(addition.df[right] as number);
+      emit(addition, right, shift);
+      right += 1;
+    } else {
+      terms.push(baseTerm as string);
+      df.push((base.df[left] as number) + (addition.df[right] as number));
+      emit(base, left, 0);
+      emit(addition, right, shift);
+      left += 1;
+      right += 1;
+    }
+  }
+  const offsets = new Int32Array(terms.length + 1);
+  const idf = new Float64Array(terms.length);
+  for (let index = 0; index < terms.length; index += 1) {
+    offsets[index + 1] = offsets[index]! + (df[index] as number);
+    idf[index] = Math.log(1 + (size - (df[index] as number) + 0.5) / ((df[index] as number) + 0.5));
+  }
+  const lengths = new Int32Array(size);
+  lengths.set(base.lengths, 0);
+  lengths.set(addition.lengths, shift);
+  let totalTokens = 0;
+  for (const length of lengths) totalTokens += length;
+  return {
+    terms,
+    offsets,
+    counts: Int32Array.from(counts),
+    values: Int32Array.from(values),
+    df: Int32Array.from(df),
+    idf,
+    lengths,
+    averageLength: size === 0 ? 0 : totalTokens / size,
+    size,
+  };
+}
+
+/**
  * Rebuild a queryable index from a cached posting list. The documents supply ids only; their text
  * is not needed to score, so a cold start can pass the chunk objects it already had to read.
  */

@@ -130,9 +130,15 @@ crowd out the rest. The built index is cached in the process keyed by the catalo
 bytes, and mirrored to `.wiki/index/search-cache.bin` so the first query after a
 restart loads postings + chunk metadata (~0.7 s) instead of rebuilding (~6 s).
 The cache carries the catalog hash, the chunk count and the postings size; a
-mismatch is a miss, never a partial index. `kb_query` writes only this derived
-file (plus `vectors/` from `kb_embed`) under `.wiki/`; the file is rewritten on
-the first query after the catalog changes, and deleting it forces a rebuild.
+mismatch is a miss, never a partial index. When the catalog only **appended**
+books (same sha256s and paths in the same order), the cached prefix is reused:
+only the new chunks are tokenized and their postings are merged into the cached
+inverted index, so an ingest costs ~0.5 s instead of a full ~6 s rebuild.
+Reordering, removing or re-ingesting a source, or any failed check (chunk ids,
+counts, postings size), falls back to the full rebuild. `kb_query` writes only
+this derived file (plus `vectors/` from `kb_embed`) under `.wiki/`; the file is
+rewritten on the first query after the catalog changes, and deleting it forces a
+rebuild.
 
 Boosting every chunk by its chapter's aggregate score (the sum of the chapter's
 three best chunk scores, normalised) was tried as a third chapter signal and

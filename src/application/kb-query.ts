@@ -1,10 +1,11 @@
-import { createBm25, createBm25FromPostings } from '../domain/bm25.js';
+import { createBm25, createBm25FromPostings, mergeBm25Postings } from '../domain/bm25.js';
 import type { Bm25Document, Bm25Hit, Bm25Index } from '../domain/bm25.js';
-import { catalogHashOf, makeSearchCache, readSearchCache, writeSearchCache } from './search-cache.js';
+import { catalogHashOf, makeSearchCache, readSearchCacheUnchecked, writeSearchCache } from './search-cache.js';
 import type { SearchCache, SearchCacheChunk } from './search-cache.js';
 import { expandQuery } from '../domain/glossary.js';
 import type { GlossaryEntry } from '../domain/glossary.js';
 import { assignFamilies } from '../domain/family.js';
+import type { FamilyAssignment } from '../domain/family.js';
 import { chunkQuality } from '../domain/quality.js';
 import { headingFromText } from '../domain/section.js';
 import { tokenize } from '../domain/text.js';
@@ -194,10 +195,153 @@ function sampleOf(chunks: readonly StoredChunk[]): string {
   return parts.join('\n');
 }
 
+interface SourceDoc {
+  readonly sha256: string;
+  readonly path: string;
+  readonly pages: number;
+  readonly chunks: readonly StoredChunk[];
+}
+
+/** Everything the build accumulates per chunk; shared by a full build and an append. */
+interface BuildState {
+  readonly documents: Bm25Document[];
+  readonly chunkMeta: SearchCacheChunk[];
+  readonly byId: Map<string, IndexedChunk>;
+  readonly chapters: ChapterDoc[];
+  readonly byPage: Map<string, string[]>;
+  readonly bySection: Map<string, string[]>;
+  readonly byChapter: Map<string, string[]>;
+}
+
+function createBuildState(): BuildState {
+  return {
+    documents: [],
+    chunkMeta: [],
+    byId: new Map(),
+    chapters: [],
+    byPage: new Map(),
+    bySection: new Map(),
+    byChapter: new Map(),
+  };
+}
+
+/**
+ * Index one book into the shared state. Chapter ids continue from the chapters already present, so
+ * appending a book leaves the cached chapter ids — and the cached chapter scores — valid.
+ */
+function appendSource(state: BuildState, source: SourceDoc, family: string): void {
+  let run: { title: string; start: number; end: number; chapter: number } | undefined;
+  const flush = (): void => {
+    if (run === undefined || run.title === '') return;
+    state.chapters.push({
+      id: source.sha256 + '#ch' + state.chapters.length,
+      text: run.title + ' ' + run.title + ' ' + source.path,
+      path: source.path,
+      title: run.title,
+      start: run.start,
+      end: run.end,
+    });
+    run = undefined;
+  };
+  for (const chunk of source.chunks) {
+    const section = sectionOf(chunk);
+    if (section !== '') {
+      if (run === undefined || run.title !== section) {
+        flush();
+        run = { title: section, start: chunk.page, end: chunk.page, chapter: state.chapters.length };
+      }
+    } else {
+      flush();
+    }
+    const chapter = run === undefined ? -1 : run.chapter;
+    const indexed: IndexedChunk = {
+      chunk,
+      path: source.path,
+      family,
+      quality: chunkQuality(chunk.text),
+      section,
+      chapter,
+    };
+    state.byId.set(chunk.id, indexed);
+    state.chunkMeta.push({ id: chunk.id, section, quality: indexed.quality, chapter });
+    state.documents.push({ id: chunk.id, text: documentTextOf(source.path, chunk) });
+    const pageKey = source.path + '#' + chunk.page;
+    const pageGroup = state.byPage.get(pageKey);
+    if (pageGroup === undefined) state.byPage.set(pageKey, [chunk.id]);
+    else pageGroup.push(chunk.id);
+    if (section !== '') {
+      const sectionKey = source.path + '\u0000' + section;
+      const sectionGroup = state.bySection.get(sectionKey);
+      if (sectionGroup === undefined) state.bySection.set(sectionKey, [chunk.id]);
+      else sectionGroup.push(chunk.id);
+    }
+    if (run !== undefined) {
+      run.end = chunk.page;
+      const chapterKey = source.path + '#' + run.chapter;
+      const chapterGroup = state.byChapter.get(chapterKey);
+      if (chapterGroup === undefined) state.byChapter.set(chapterKey, [chunk.id]);
+      else chapterGroup.push(chunk.id);
+    }
+  }
+  flush();
+}
+
+function sortBuildGroups(state: BuildState): void {
+  for (const group of state.byPage.values()) group.sort((left, right) => chunkOrder(left) - chunkOrder(right));
+  for (const group of state.bySection.values()) group.sort((left, right) => chunkOrder(left) - chunkOrder(right));
+  for (const group of state.byChapter.values()) group.sort((left, right) => chunkOrder(left) - chunkOrder(right));
+}
+
+/**
+ * Seed the state from the cached prefix so only appended books get tokenised. Cached chunks carry
+ * section, quality and chapter, so the reused documents need an id but no text — their postings
+ * come from the cache. Any mismatch (a removed book, an edited chunk file) returns undefined and
+ * the caller rebuilds from scratch.
+ */
+function seedFromCache(
+  cached: SearchCache,
+  sources: readonly SourceDoc[],
+  assignments: FamilyAssignment,
+): { readonly state: BuildState; readonly reused: number } | undefined {
+  const oldCount = cached.sources.length;
+  const oldChunks = cached.chunks.length;
+  if (oldCount === 0 || oldCount > sources.length || cached.postings.size !== oldChunks) return undefined;
+  const state = createBuildState();
+  let cursor = 0;
+  for (let index = 0; index < oldCount; index += 1) {
+    const source = sources[index];
+    const meta = cached.sources[index];
+    if (source === undefined || meta === undefined) return undefined;
+    if (source.sha256 !== meta.sha256 || source.path !== meta.path) return undefined;
+    const family = assignments.bySha.get(source.sha256)?.id ?? source.sha256;
+    for (const chunk of source.chunks) {
+      const stored = cached.chunks[cursor];
+      if (stored === undefined || stored.id !== chunk.id) return undefined;
+      cursor += 1;
+      state.byId.set(chunk.id, {
+        chunk,
+        path: meta.path,
+        family,
+        quality: stored.quality,
+        section: stored.section,
+        chapter: stored.chapter,
+      });
+      state.chunkMeta.push(stored);
+      state.documents.push({ id: chunk.id, text: '' });
+    }
+  }
+  if (cursor !== oldChunks) return undefined;
+  for (const chapter of cached.chapters) state.chapters.push({ ...chapter });
+  for (const [mapKey, ids] of cached.byPage) state.byPage.set(mapKey, [...ids]);
+  for (const [mapKey, ids] of cached.bySection) state.bySection.set(mapKey, [...ids]);
+  for (const [mapKey, ids] of cached.byChapter) state.byChapter.set(mapKey, [...ids]);
+  return { state, reused: oldCount };
+}
+
 /** Cache hit path: same order as the build, so document indexes line up with the postings. */
 function restoreFromCache(
   cached: SearchCache,
-  sources: readonly { sha256: string; path: string; pages: number; chunks: StoredChunk[] }[],
+  sources: readonly SourceDoc[],
   key: string,
 ): IndexSnapshot | undefined {
   const documents: Bm25Document[] = [];
@@ -270,8 +414,9 @@ async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
     sources.push({ sha256, path: source.path, pages: source.pages > 0 ? source.pages : maxPage, chunks });
   }
 
-  const cached = await readSearchCache(fs, catalogHashOf(key));
-  if (cached !== undefined) {
+  const cached = await readSearchCacheUnchecked(fs);
+  const exact = cached !== undefined && cached.catalogHash === catalogHashOf(key);
+  if (exact && cached !== undefined) {
     const totalChunks = sources.reduce((sum, source) => sum + source.chunks.length, 0);
     const aligned = cached.sources.length === sources.length
       && cached.chunks.length === totalChunks
@@ -294,81 +439,40 @@ async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
     })),
   );
 
-  const documents: Bm25Document[] = [];
-  const chunkMeta: SearchCacheChunk[] = [];
-  const byId = new Map<string, IndexedChunk>();
-  const chapters: ChapterDoc[] = [];
-  const byPage = new Map<string, string[]>();
-  const bySection = new Map<string, string[]>();
-  // Contiguous runs only: the same heading can reappear later ("思考题"), and a window must not
-  // splice those distant pages together.
-  const byChapter = new Map<string, string[]>();
-
-  for (const source of sources) {
-    const family = assignments.bySha.get(source.sha256)?.id ?? source.sha256;
-    let run: { title: string; start: number; end: number; chapter: number } | undefined;
-    const flush = (): void => {
-      if (run === undefined || run.title === '') return;
-      chapters.push({
-        id: source.sha256 + '#ch' + chapters.length,
-        text: run.title + ' ' + run.title + ' ' + source.path,
-        path: source.path,
-        title: run.title,
-        start: run.start,
-        end: run.end,
-      });
-      run = undefined;
-    };
-    for (const chunk of source.chunks) {
-      const section = sectionOf(chunk);
-      if (section !== '') {
-        if (run === undefined || run.title !== section) {
-          flush();
-          run = { title: section, start: chunk.page, end: chunk.page, chapter: chapters.length };
-        }
-      } else {
-        flush();
-      }
-      const chapter = run === undefined ? -1 : run.chapter;
-      const indexed: IndexedChunk = {
-        chunk,
-        path: source.path,
-        family,
-        quality: chunkQuality(chunk.text),
-        section,
-        chapter,
-      };
-      byId.set(chunk.id, indexed);
-      chunkMeta.push({ id: chunk.id, section, quality: indexed.quality, chapter });
-      documents.push({ id: chunk.id, text: documentTextOf(source.path, chunk) });
-      const pageKey = source.path + '#' + chunk.page;
-      const pageGroup = byPage.get(pageKey);
-      if (pageGroup === undefined) byPage.set(pageKey, [chunk.id]);
-      else pageGroup.push(chunk.id);
-      if (section !== '') {
-        const sectionKey = source.path + '\u0000' + section;
-        const sectionGroup = bySection.get(sectionKey);
-        if (sectionGroup === undefined) bySection.set(sectionKey, [chunk.id]);
-        else sectionGroup.push(chunk.id);
-      }
-      if (run !== undefined) {
-        run.end = chunk.page;
-        const chapterKey = source.path + '#' + run.chapter;
-        const chapterGroup = byChapter.get(chapterKey);
-        if (chapterGroup === undefined) byChapter.set(chapterKey, [chunk.id]);
-        else chapterGroup.push(chunk.id);
-      }
-    }
-    flush();
+  // An appended book reuses the cached prefix; anything else starts from an empty state.
+  const appended = cached !== undefined && !exact ? seedFromCache(cached, sources, assignments) : undefined;
+  const state = appended?.state ?? createBuildState();
+  for (const source of sources.slice(appended?.reused ?? 0)) {
+    appendSource(state, source, assignments.bySha.get(source.sha256)?.id ?? source.sha256);
   }
-  for (const group of byPage.values()) group.sort((left, right) => chunkOrder(left) - chunkOrder(right));
-  for (const group of bySection.values()) group.sort((left, right) => chunkOrder(left) - chunkOrder(right));
-  for (const group of byChapter.values()) group.sort((left, right) => chunkOrder(left) - chunkOrder(right));
+  sortBuildGroups(state);
+  const { documents, chunkMeta, byId, chapters, byPage, bySection, byChapter } = state;
 
   // Quality is a property of the page, so it can live inside the cached index; named-entity
   // and chapter weights are query-specific and arrive per call.
-  const index = createBm25(documents, { documentWeight: (document) => byId.get(document.id)?.quality ?? 1 });
-  const chapterIndex = createBm25(chapters.map((chapter) => ({ id: chapter.id, text: chapter.text })));
+  const documentWeight = (document: Bm25Document): number => byId.get(document.id)?.quality ?? 1;
+  const chapterDocs = chapters.map((chapter) => ({ id: chapter.id, text: chapter.text }));
+  let index: Bm25Index;
+  let chapterIndex: Bm25Index;
+  if (appended !== undefined && cached !== undefined) {
+    const oldChapters = cached.chapters.map((chapter) => ({ id: chapter.id, text: chapter.text }));
+    const oldChapterPostings = cached.chapterPostings ?? createBm25(oldChapters).toPostings();
+    const addedDocuments = createBm25(documents.slice(cached.chunks.length));
+    index = createBm25FromPostings(
+      mergeBm25Postings(cached.postings, addedDocuments.toPostings()),
+      { documentWeight },
+      documents,
+    );
+    const addedChapters = createBm25(chapterDocs.slice(cached.chapters.length));
+    chapterIndex = createBm25FromPostings(
+      mergeBm25Postings(oldChapterPostings, addedChapters.toPostings()),
+      {},
+      chapterDocs,
+    );
+  } else {
+    index = createBm25(documents, { documentWeight });
+    chapterIndex = createBm25(chapterDocs);
+  }
   await writeSearchCache(fs, makeSearchCache({
     catalogHash: catalogHashOf(key),
     sources: sources.map((source) => ({
