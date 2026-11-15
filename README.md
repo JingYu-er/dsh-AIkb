@@ -9,7 +9,7 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path is implemented and tested (69 unit tests):
+MVP read path and the compile loop are implemented and tested (75 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
@@ -20,10 +20,12 @@ MVP read path is implemented and tested (69 unit tests):
 | `kb_embed` | Local e5-small vectors over the chunk index, incremental per book. |
 | `kb_lint` | Read-only note hygiene: broken wikilinks, duplicate titles, orphan concept pages, missing frontmatter/type. |
 | `kb_compile` | Compile inbox drafts: resolve title/type, lift `sources:` and wikilinks, normalise H1 and blank lines; writes `inbox/_compiled/`, idempotent via `compiledHash`. |
+| `kb_promote` | Promote compiled drafts into the configured `promoteDir` with a line diff; confirm-gated, never overwrites without `force`. |
 | `kb_suggest_links` | Read-only link candidates between notes that share rare terms, with a reason and a confidence. |
 
-Writes are off by default and, when enabled, are confined to `inbox/` and
-`.wiki/`. `vault/` is never modified by this plugin.
+Writes are off by default and, when enabled, are confined to `inbox/`, `.wiki/`,
+and the `promoteDir` you configure for `kb_promote`. Nothing else in the vault is
+modified.
 
 ## Requirements
 
@@ -70,7 +72,7 @@ Configure the machine-specific parts in the profile's `cordis.patch.yml`
   config:
     vaultPath: D:/path/to/MyObsidian
     workspaceRoot: D:/path/to/workspace   # venv lives in <workspaceRoot>/.kb/venv
-    allowWrites: true                     # required for kb_ingest / kb_inventory / kb_compile
+    allowWrites: true                     # required for kb_ingest / inventory / compile / promote
     # optional:
     pythonPath: python                    # base interpreter used to create the venv
     venvPath: D:/path/to/venv             # override the venv location
@@ -83,6 +85,7 @@ Configure the machine-specific parts in the profile's `cordis.patch.yml`
     embedModelDir: D:/path/to/e5-small    # default <workspaceRoot>/.kb/models/multilingual-e5-small
     embedModelUrl: https://hf-mirror.com/Xenova/multilingual-e5-small/resolve/main
     glossaryExpansion: false              # widen queries with harvested pairs (measured neutral; off)
+    promoteDir: 学习/笔记/收件箱            # kb_promote destination (vault-relative); unset = off
 ```
 
 ## Usage
@@ -96,6 +99,7 @@ kb_query    { query: "镜像电流源 原理" }     # hits with page + section
 kb_query    { query: "…", expand: "section" }  # + page window and whole-section context
 kb_lint                                    # broken links / orphans / frontmatter
 kb_compile  { dryRun: true }               # preview inbox drafts -> inbox/_compiled/
+kb_promote  { limit: 3 }                   # diff preview; add confirm:true to write
 kb_suggest_links { note: "学习/硬件/笔记/结电容.md" }   # candidate [[links]] (read-only)
 ```
 

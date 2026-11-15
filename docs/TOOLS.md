@@ -207,6 +207,32 @@ Output: `notes[]` (`path`, `output`, `title`, `type`, `typeInferred`, `sources`,
 `links`, `changes`, `skipped`, `written`, `error`), `totals` (`scanned`,
 `compiled`, `skipped`, `failed`), `dryRun`, `elapsedMs`.
 
+## kb_promote
+
+Closes the compile loop: it takes compiled drafts from `inbox/_compiled/` and
+writes them into the vault-relative folder named by the `promoteDir` config.
+There is no default folder: promotion stays off until you choose a destination.
+
+Promotion is a review step, not a move:
+
+- without `confirm`, it prints a line diff per draft and a plan
+  (`create` / `update` / `conflict` / `unchanged`) and writes nothing;
+- an existing target note that differs is a `conflict` and stays untouched;
+  `force: true` is required to replace it;
+- the compiled draft in `inbox/_compiled/` is never deleted, so it remains the
+  record of what was reviewed;
+- `source` promotes one draft; `target` renames it inside `promoteDir` and is
+  only accepted with a single source; without `source` every compiled draft is
+  considered, in path order, up to `limit`.
+
+Only `promoteDir` is writable; any other target is `vault.write-denied`.
+
+Input: `{ vaultPath?, source?, target?, confirm?, force?, limit? }`
+
+Output: `notes[]` (`source`, `target`, `status`, `added`, `removed`, `diff[]`,
+`written`, `error`), `totals` (`scanned`, `created`, `updated`, `conflicts`,
+`unchanged`, `failed`), `promoteDir`, `dryRun`, `elapsedMs`.
+
 ## kb_suggest_links
 
 Read-only candidate links. Given two notes, it scores how much rare vocabulary
@@ -277,6 +303,9 @@ Output: `books[]` (`path`, `sha256`, `chunks`, `seconds`, `error`),
 | `vault.write-denied` | Target is outside `inbox/` and `.wiki/`. |
 | `kb.writes-disabled` | Write requested while `allowWrites` is false. |
 | `compile.failed` | Draft compilation crashed; the per-note `error` carries the cause. |
+| `promote.dir-not-configured` | `kb_promote` has no `promoteDir`; set one in the plugin config. |
+| `promote.target-ambiguous` | `target:` was combined with a batch of sources. |
+| `promote.failed` | Promotion crashed before per-note handling. |
 | `ingest.manifest-missing` | `.wiki/books.jsonl` absent; run `kb_inventory` with `write` first. |
 | `query.index-missing` | No catalog; run `kb_ingest` first. |
 | `embed.index-missing` | No catalog; run `kb_ingest` first. |
@@ -285,8 +314,9 @@ Output: `books[]` (`path`, `sha256`, `chunks`, `seconds`, `error`),
 | `pdf.python-missing` | No interpreter with PyMuPDF and the automatic venv bootstrap failed; the message carries the probe/install errors. |
 | `pdf.extract-failed` | Extractor exited non-zero or produced invalid JSON. |
 
-## Planned (not implemented)
+## Planned
 
-`kb_promote` (reviewed diff into `vault/`): it takes a compiled draft from
-`inbox/_compiled/`, shows the diff against the target note (or proposes a new
-path), and only writes after an explicit confirmation.
+The original roadmap (read path, `kb_lint`, `kb_suggest_links`, `kb_compile`,
+`kb_promote`) is complete. Further work is quality rather than surface area: a
+formula-preserving path for OCR text, and a reranker experiment for page
+accuracy.

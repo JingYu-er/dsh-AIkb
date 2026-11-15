@@ -13,6 +13,7 @@ import { createKbCompileTool } from './tools/kb-compile.tool.js';
 import { createKbIngestTool } from './tools/kb-ingest.tool.js';
 import { createKbInventoryTool } from './tools/kb-inventory.tool.js';
 import { createKbLintTool } from './tools/kb-lint.tool.js';
+import { createKbPromoteTool } from './tools/kb-promote.tool.js';
 import { createKbQueryTool } from './tools/kb-query.tool.js';
 import { createKbSuggestLinksTool } from './tools/kb-suggest-links.tool.js';
 
@@ -59,6 +60,8 @@ export interface KbPluginConfig {
    * neutral. Turn it on for a library that mixes Chinese questions with English books.
    */
   readonly glossaryExpansion?: boolean;
+  /** Vault-relative folder kb_promote writes into. Unset disables promotion. */
+  readonly promoteDir?: string;
 }
 
 interface ToolsRegistry {
@@ -170,6 +173,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     registerTool(ctx, createKbInventoryTool({ allowWrites, resolveRoot }));
     registerTool(ctx, createKbLintTool({ resolveRoot }));
     registerTool(ctx, createKbCompileTool({ resolveRoot, allowWrites: () => allowWrites }));
+    registerTool(ctx, createKbPromoteTool({ resolveRoot, allowWrites: () => allowWrites, promoteDir: () => config.promoteDir }));
     registerTool(ctx, createKbSuggestLinksTool({ resolveRoot }));
     registerTool(
       ctx,
@@ -208,5 +212,5 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     logBoot(workspaceRoot, 'apply-failed', error instanceof Error ? error.message : String(error));
     throw error;
   }
-  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_compile kb_suggest_links kb_ingest kb_query kb_embed');
+  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_compile kb_promote kb_suggest_links kb_ingest kb_query kb_embed');
 }
