@@ -126,9 +126,13 @@ Recovered headings drive windows and chapter weighting but are **not** added to
 the searchable text, where they proved too noisy. **Edition families**: books with
 the same title key and a near-identical SimHash form a family, and no more than
 three hits per family are returned, so three editions of one textbook cannot
-crowd out the rest. The built index is cached per vault in the process keyed by
-the catalog bytes, which took a query from 3.6 s to ~0.45 s (the first query in a
-fresh process still pays the build).
+crowd out the rest. The built index is cached in the process keyed by the catalog
+bytes, and mirrored to `.wiki/index/search-cache.bin` so the first query after a
+restart loads postings + chunk metadata (~0.7 s) instead of rebuilding (~6 s).
+The cache carries the catalog hash, the chunk count and the postings size; a
+mismatch is a miss, never a partial index. `kb_query` writes only this derived
+file (plus `vectors/` from `kb_embed`) under `.wiki/`; the file is rewritten on
+the first query after the catalog changes, and deleting it forces a rebuild.
 
 Boosting every chunk by its chapter's aggregate score (the sum of the chapter's
 three best chunk scores, normalised) was tried as a third chapter signal and

@@ -6,7 +6,8 @@ import type { DoctorEntry, DoctorVaultFs } from '../../application/kb-doctor.js'
 /** Directories whose contents are never part of the knowledge base. */
 const SKIP_DIRECTORIES = new Set(['.obsidian', '.git', '.trash', 'node_modules', '.kb', '.stfolder']);
 
-/** Node adapter for the read-only vault view. Writes are deliberately absent. */
+/** Node adapter for the vault view. Vault content stays read-only; only the generated
+ * index cache under .wiki/index/ is ever written, and only through writeBinary. */
 export class NodeVaultFs implements DoctorVaultFs {
   readonly root: string;
 
@@ -83,6 +84,18 @@ export class NodeVaultFs implements DoctorVaultFs {
 
   async readText(relPath: string): Promise<string> {
     return fsPromises.readFile(this.absolute(relPath), 'utf8');
+  }
+
+  async readBinary(relPath: string): Promise<Uint8Array> {
+    const buffer = await fsPromises.readFile(this.absolute(relPath));
+    return new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+  }
+
+  /** Only the search cache calls this; a read-only vault makes it throw, which the caller ignores. */
+  async writeBinary(relPath: string, data: Uint8Array): Promise<void> {
+    const absolute = this.absolute(relPath);
+    await fsPromises.mkdir(nodePath.dirname(absolute), { recursive: true });
+    await fsPromises.writeFile(absolute, data);
   }
 }
 

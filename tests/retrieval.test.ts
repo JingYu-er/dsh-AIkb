@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createBm25 } from '../src/domain/bm25.js';
+import { createBm25, createBm25FromPostings } from '../src/domain/bm25.js';
+import { makeSearchCache, readSearchCache, writeSearchCache } from '../src/application/search-cache.js';
 import { chunkPages } from '../src/domain/chunking.js';
 import { tokenize } from '../src/domain/text.js';
 
@@ -71,4 +72,42 @@ test('bm25 ranks the matching page first', () => {
   const hits = index.search('电流源 镜像');
   assert.equal(hits[0]?.id, 'a');
   assert.deepEqual(index.search(''), []);
+});
+
+test('createBm25FromPostings reproduces scores and coverage', () => {
+  const documents = [
+    { id: 'a', text: '镜像电流源 参考电流 匹配晶体管' },
+    { id: 'b', text: '运放的增益带宽积与压摆率' },
+    { id: 'c', text: '开关电源的纹波与布局' },
+  ];
+  const weight = (document: { id: string }): number => (document.id === 'b' ? 1.2 : 1);
+  const index = createBm25(documents, { documentWeight: weight });
+  const restored = createBm25FromPostings(index.toPostings(), { documentWeight: weight }, documents);
+  assert.deepEqual(restored.search('电流源 镜像 增益'), index.search('电流源 镜像 增益'));
+  assert.equal(restored.coverage('电流源 增益'), index.coverage('电流源 增益'));
+});
+
+test('search cache round-trips through the binary format', async () => {
+  const files = new Map<string, Uint8Array>();
+  const fs = {
+    exists: async (relPath: string): Promise<boolean> => files.has(relPath),
+    readBinary: async (relPath: string): Promise<Uint8Array> => files.get(relPath) ?? new Uint8Array(),
+    writeBinary: async (relPath: string, data: Uint8Array): Promise<void> => {
+      files.set(relPath, data);
+    },
+  };
+  const index = createBm25([{ id: 'a', text: '镜像电流源 参考电流' }]);
+  const cache = makeSearchCache({
+    catalogHash: 'h',
+    sources: [{ sha256: 's', path: 'p', pages: 1, family: 's' }],
+    chunks: [{ id: 'a', section: '', quality: 1, chapter: -1 }],
+    chapters: [],
+    byPage: [],
+    bySection: [],
+    byChapter: [],
+    postings: index.toPostings(),
+  });
+  assert.equal(await writeSearchCache(fs, cache), true);
+  assert.deepEqual(await readSearchCache(fs, 'h'), cache);
+  assert.equal(await readSearchCache(fs, 'stale'), undefined);
 });

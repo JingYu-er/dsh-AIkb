@@ -24,6 +24,26 @@ export interface Bm25Expansion {
   readonly scale?: number;
 }
 
+/**
+ * Inverted index in compressed sparse row form: term *i* owns the postings at
+ * `offsets[i] .. offsets[i + 1]`, where `values[p]` is the document index and
+ * `counts[p]` the term frequency inside that document. Typed arrays survive
+ * `v8.serialize` unchanged, which is what makes a cold query skip tokenising the
+ * 32 MB corpus.
+ */
+export interface Bm25Postings {
+  readonly terms: readonly string[];
+  readonly offsets: Int32Array;
+  readonly counts: Int32Array;
+  readonly values: Int32Array;
+  /** Document frequency per term (same order as `terms`). */
+  readonly df: Int32Array;
+  readonly idf: Float64Array;
+  readonly lengths: Int32Array;
+  readonly averageLength: number;
+  readonly size: number;
+}
+
 export interface Bm25Index {
   search(
     query: string,
@@ -38,6 +58,8 @@ export interface Bm25Index {
    * paying for. Tokens that never occur count with the idf they would have had if seen once.
    */
   coverage(query: string): number;
+  /** Snapshot for caching on disk; pair it with `createBm25FromPostings`. */
+  toPostings(): Bm25Postings;
 }
 
 const DEFAULT_K1 = 1.5;
@@ -45,43 +67,111 @@ const DEFAULT_B = 0.75;
 
 /** Dependency-free BM25. Chinese needs no segmenter because tokens are bigrams. */
 export function createBm25(documents: readonly Bm25Document[], options: Bm25Options = {}): Bm25Index {
+  const postingsByTerm = new Map<string, number[]>();
+  const lengths: number[] = [];
+  let totalTokens = 0;
+  for (let index = 0; index < documents.length; index += 1) {
+    const tokens = tokenize(documents[index]?.text ?? '');
+    lengths.push(tokens.length);
+    totalTokens += tokens.length;
+    if (tokens.length === 0) continue;
+    // A per-document frequency table keeps the flat postings list to one pair per term.
+    const local = new Map<string, number>();
+    for (const token of tokens) local.set(token, (local.get(token) ?? 0) + 1);
+    for (const [token, frequency] of local) {
+      const list = postingsByTerm.get(token);
+      if (list === undefined) postingsByTerm.set(token, [index, frequency]);
+      else {
+        list.push(index, frequency);
+      }
+    }
+  }
+  const size = documents.length;
+  const averageLength = size === 0 ? 0 : totalTokens / size;
+  return createBm25FromPostings(compressPostings(postingsByTerm, lengths, averageLength, size), options, documents);
+}
+
+/** Turn the mutable build-time map into the typed arrays a query walks. */
+function compressPostings(
+  postingsByTerm: Map<string, number[]>,
+  lengths: readonly number[],
+  averageLength: number,
+  size: number,
+): Bm25Postings {
+  const terms = [...postingsByTerm.keys()].sort();
+  const offsets = new Int32Array(terms.length + 1);
+  const df = new Int32Array(terms.length);
+  const idf = new Float64Array(terms.length);
+  let total = 0;
+  for (const list of postingsByTerm.values()) total += list.length;
+  const values = new Int32Array(total / 2);
+  const counts = new Int32Array(total / 2);
+  let cursor = 0;
+  for (let index = 0; index < terms.length; index += 1) {
+    const term = terms[index] as string;
+    const list = postingsByTerm.get(term) ?? [];
+    offsets[index] = cursor;
+    df[index] = list.length / 2;
+    for (let at = 0; at < list.length; at += 2) {
+      values[cursor] = list[at] as number;
+      counts[cursor] = list[at + 1] as number;
+      cursor += 1;
+    }
+    idf[index] = Math.log(1 + (size - df[index]! + 0.5) / (df[index]! + 0.5));
+  }
+  offsets[terms.length] = cursor;
+  return {
+    terms,
+    offsets,
+    counts,
+    values,
+    df,
+    idf,
+    lengths: Int32Array.from(lengths),
+    averageLength,
+    size,
+  };
+}
+
+/**
+ * Rebuild a queryable index from a cached posting list. The documents supply ids only; their text
+ * is not needed to score, so a cold start can pass the chunk objects it already had to read.
+ */
+export function createBm25FromPostings(
+  postings: Bm25Postings,
+  options: Bm25Options = {},
+  documents: readonly Bm25Document[] = [],
+): Bm25Index {
   const k1 = options.k1 ?? DEFAULT_K1;
   const b = options.b ?? DEFAULT_B;
-  const documentWeight = options.documentWeight;
-  const docTokens: string[][] = [];
-  const docLengths: number[] = [];
-  const df = new Map<string, number>();
-  const averageLength = (() => {
-    let total = 0;
-    for (const document of documents) {
-      const tokens = tokenize(document.text);
-      docTokens.push(tokens);
-      docLengths.push(tokens.length);
-      total += tokens.length;
-      for (const token of new Set(tokens)) df.set(token, (df.get(token) ?? 0) + 1);
-    }
-    return documents.length === 0 ? 0 : total / documents.length;
-  })();
+  const { terms, offsets, counts, values, df, idf, lengths, averageLength } = postings;
+  const size = postings.size;
+  const termIndex = new Map<string, number>();
+  for (let index = 0; index < terms.length; index += 1) termIndex.set(terms[index] as string, index);
+  const unseenIdf = size === 0 ? 1 : Math.log(1 + (size + 0.5) / 0.5);
 
-  const idf = new Map<string, number>();
-  const total = documents.length;
-  for (const [token, frequency] of df) {
-    idf.set(token, Math.log(1 + (total - frequency + 0.5) / (frequency + 0.5)));
-  }
-
-  const unseenIdf = total === 0 ? 1 : Math.log(1 + (total + 0.5) / 0.5);
+  const idOf = (documentIndex: number): string => documents[documentIndex]?.id ?? '';
+  const factorOf = (documentIndex: number, weight?: (document: Bm25Document, documentIndex: number) => number): number => {
+    const document = documents[documentIndex];
+    if (document === undefined) return 1;
+    if (weight !== undefined) return weight(document, documentIndex);
+    if (options.documentWeight !== undefined) return options.documentWeight(document);
+    return 1;
+  };
 
   return {
-    size: documents.length,
+    size,
+    toPostings: () => postings,
     coverage(query: string): number {
       const tokens = [...new Set(tokenize(query))];
       if (tokens.length === 0) return 0;
       let seen = 0;
       let all = 0;
       for (const token of tokens) {
-        const weight = idf.get(token) ?? unseenIdf;
+        const index = termIndex.get(token);
+        const weight = index === undefined ? unseenIdf : idf[index] ?? unseenIdf;
         all += weight;
-        if (df.has(token)) seen += weight;
+        if (index !== undefined) seen += weight;
       }
       return all === 0 ? 0 : seen / all;
     },
@@ -92,53 +182,55 @@ export function createBm25(documents: readonly Bm25Document[], options: Bm25Opti
       expansion?: Bm25Expansion,
     ): Bm25Hit[] {
       const queryTokens = [...new Set(tokenize(query))];
-      if (queryTokens.length === 0 || documents.length === 0) return [];
+      if (queryTokens.length === 0 || size === 0) return [];
       const expansionTokens = expansion === undefined ? [] : [...new Set(tokenize(expansion.text))];
       const expansionScale = expansion?.scale ?? 0.35;
-      const hits: Bm25Hit[] = [];
-      for (let index = 0; index < documents.length; index += 1) {
-        const tokens = docTokens[index] ?? [];
-        if (tokens.length === 0) continue;
-        const frequencies = new Map<string, number>();
-        for (const token of tokens) frequencies.set(token, (frequencies.get(token) ?? 0) + 1);
-        let score = 0;
-        let matchedWeight = 0;
-        let totalWeight = 0;
-        for (const token of queryTokens) {
-          const weight = idf.get(token) ?? 0;
-          totalWeight += weight;
-          const frequency = frequencies.get(token);
-          if (frequency === undefined) continue;
-          matchedWeight += weight;
-          const denominator = frequency + k1 * (1 - b + b * (tokens.length / (averageLength || 1)));
-          score += weight * ((frequency * (k1 + 1)) / denominator);
+      const scores = new Map<number, number>();
+      const matched = new Map<number, number>();
+      // Expansion terms are added after the coverage factor, as they always were: a translation
+      // reaching a Chinese page must not be damped by words the question itself is missing.
+      const expansionScores = new Map<number, number>();
+      let totalWeight = 0;
+      const accumulate = (
+        token: string,
+        scale: number,
+        countTowardsCoverage: boolean,
+        target: Map<number, number>,
+      ): void => {
+        const index = termIndex.get(token);
+        if (index === undefined) return;
+        const weight = idf[index] ?? 0;
+        if (weight === 0) return;
+        const from = offsets[index] as number;
+        const to = offsets[index + 1] as number;
+        for (let at = from; at < to; at += 1) {
+          const documentIndex = values[at] as number;
+          const frequency = counts[at] as number;
+          const denominator = frequency + k1 * (1 - b + b * ((lengths[documentIndex] ?? 0) / (averageLength || 1)));
+          target.set(documentIndex, (target.get(documentIndex) ?? 0) + scale * weight * ((frequency * (k1 + 1)) / denominator));
+          if (countTowardsCoverage) matched.set(documentIndex, (matched.get(documentIndex) ?? 0) + weight);
         }
-        // A chunk that matches half the question should not outrank one that covers all of it.
-        // Coverage is weighted by IDF: missing a common word costs less than missing a rare one,
-        // so a part number or a device name carries the match on its own.
-        const coverage = totalWeight === 0 ? 0 : matchedWeight / totalWeight;
-        score *= 0.4 + 0.6 * coverage;
-        // Expansion words help a translation reach a Chinese page, but at a fraction of the
-        // weight: otherwise an English phrase pulls a textbook question into a datasheet.
-        for (const token of expansionTokens) {
-          const frequency = frequencies.get(token);
-          if (frequency === undefined) continue;
-          const idfValue = idf.get(token) ?? 0;
-          const denominator = frequency + k1 * (1 - b + b * (tokens.length / (averageLength || 1)));
-          score += expansionScale * idfValue * ((frequency * (k1 + 1)) / denominator);
-        }
-        // Query-time weights (named device, chapter match) stay outside the cached index: the
-        // token counts are built once, only the multiplier is recomputed per query.
-        const factor = weight !== undefined
-          ? weight(documents[index] as Bm25Document, index)
-          : documentWeight !== undefined
-            ? documentWeight(documents[index] as Bm25Document)
-            : 1;
-        score *= factor;
-        if (score > 0) hits.push({ id: documents[index]?.id ?? '', score });
+      };
+      for (const token of queryTokens) {
+        totalWeight += termIndex.has(token) ? (idf[termIndex.get(token) as number] ?? 0) : 0;
+        accumulate(token, 1, true, scores);
       }
-      hits.sort((left, right) => right.score - left.score);
-      return hits.slice(0, topK);
+      for (const token of expansionTokens) accumulate(token, expansionScale, false, expansionScores);
+      const ranked: { documentIndex: number; score: number }[] = [];
+      const considered = new Set<number>();
+      const consider = (documentIndex: number): void => {
+        if (considered.has(documentIndex)) return;
+        considered.add(documentIndex);
+        const coverage = totalWeight === 0 ? 0 : (matched.get(documentIndex) ?? 0) / totalWeight;
+        const lexical = (scores.get(documentIndex) ?? 0) * (0.4 + 0.6 * coverage);
+        const score = (lexical + (expansionScores.get(documentIndex) ?? 0)) * factorOf(documentIndex, weight);
+        if (score > 0) ranked.push({ documentIndex, score });
+      };
+      for (const documentIndex of scores.keys()) consider(documentIndex);
+      for (const documentIndex of expansionScores.keys()) consider(documentIndex);
+      // Document order breaks ties, matching the original scan order (Array#sort is stable).
+      ranked.sort((left, right) => right.score - left.score || left.documentIndex - right.documentIndex);
+      return ranked.slice(0, topK).map((hit) => ({ id: idOf(hit.documentIndex), score: hit.score }));
     },
   };
 }

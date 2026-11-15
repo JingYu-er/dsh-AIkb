@@ -1,5 +1,7 @@
-import { createBm25 } from '../domain/bm25.js';
+import { createBm25, createBm25FromPostings } from '../domain/bm25.js';
 import type { Bm25Document, Bm25Hit, Bm25Index } from '../domain/bm25.js';
+import { catalogHashOf, makeSearchCache, readSearchCache, writeSearchCache } from './search-cache.js';
+import type { SearchCache, SearchCacheChunk } from './search-cache.js';
 import { expandQuery } from '../domain/glossary.js';
 import type { GlossaryEntry } from '../domain/glossary.js';
 import { assignFamilies } from '../domain/family.js';
@@ -12,6 +14,9 @@ export interface QueryFs {
   readonly root: string;
   exists(relPath: string): Promise<boolean>;
   readText(relPath: string): Promise<string>;
+  /** Optional: the index cache is stored as a binary blob under .wiki/index/. */
+  readBinary?(relPath: string): Promise<Uint8Array>;
+  writeBinary?(relPath: string, data: Uint8Array): Promise<void>;
 }
 
 /** Preloaded vectors for the whole index: ids[k] owns data[k*dims..(k+1)*dims]. */
@@ -189,6 +194,60 @@ function sampleOf(chunks: readonly StoredChunk[]): string {
   return parts.join('\n');
 }
 
+/** Cache hit path: same order as the build, so document indexes line up with the postings. */
+function restoreFromCache(
+  cached: SearchCache,
+  sources: readonly { sha256: string; path: string; pages: number; chunks: StoredChunk[] }[],
+  key: string,
+): IndexSnapshot | undefined {
+  const documents: Bm25Document[] = [];
+  const byId = new Map<string, IndexedChunk>();
+  let cursor = 0;
+  for (let index = 0; index < sources.length; index += 1) {
+    const source = sources[index];
+    const meta = cached.sources[index];
+    if (source === undefined || meta === undefined) return undefined;
+    for (const chunk of source.chunks) {
+      const stored = cached.chunks[cursor];
+      if (stored === undefined || stored.id !== chunk.id) return undefined;
+      cursor += 1;
+      const indexed: IndexedChunk = {
+        chunk,
+        path: meta.path,
+        family: meta.family,
+        quality: stored.quality,
+        section: stored.section,
+        chapter: stored.chapter,
+      };
+      byId.set(chunk.id, indexed);
+      documents.push({ id: chunk.id, text: documentTextOf(meta.path, chunk) });
+    }
+  }
+  const chapters = cached.chapters.map((chapter) => ({ ...chapter }));
+  const chapterDocs = chapters.map((chapter) => ({ id: chapter.id, text: chapter.text }));
+  const index = createBm25FromPostings(
+    cached.postings,
+    { documentWeight: (document) => byId.get(document.id)?.quality ?? 1 },
+    documents,
+  );
+  const chapterIndex = cached.chapterPostings === undefined
+    ? createBm25(chapterDocs)
+    : createBm25FromPostings(cached.chapterPostings, {}, chapterDocs);
+  return {
+    key,
+    sources: sources.length,
+    families: new Set(cached.sources.map((source) => source.family)).size,
+    documents,
+    byId,
+    chapters,
+    chapterIndex,
+    index,
+    byPage: new Map(cached.byPage.map(([mapKey, ids]) => [mapKey, [...ids]])),
+    bySection: new Map(cached.bySection.map(([mapKey, ids]) => [mapKey, [...ids]])),
+    byChapter: new Map(cached.byChapter.map(([mapKey, ids]) => [mapKey, [...ids]])),
+  };
+}
+
 /**
  * Build the searchable snapshot: chunk documents, families (same work, different edition),
  * chapter ranges taken from the headings that ingestion copied onto each chunk, and a small
@@ -211,6 +270,21 @@ async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
     sources.push({ sha256, path: source.path, pages: source.pages > 0 ? source.pages : maxPage, chunks });
   }
 
+  const cached = await readSearchCache(fs, catalogHashOf(key));
+  if (cached !== undefined) {
+    const totalChunks = sources.reduce((sum, source) => sum + source.chunks.length, 0);
+    const aligned = cached.sources.length === sources.length
+      && cached.chunks.length === totalChunks
+      && cached.postings.size === totalChunks
+      && cached.sources.every((source, index) => source.sha256 === sources[index]?.sha256);
+    if (aligned) {
+      const restored = restoreFromCache(cached, sources, key);
+      if (restored !== undefined) {
+        return restored;
+      }
+    }
+  }
+
   const assignments = assignFamilies(
     sources.map((source) => ({
       sha256: source.sha256,
@@ -221,6 +295,7 @@ async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
   );
 
   const documents: Bm25Document[] = [];
+  const chunkMeta: SearchCacheChunk[] = [];
   const byId = new Map<string, IndexedChunk>();
   const chapters: ChapterDoc[] = [];
   const byPage = new Map<string, string[]>();
@@ -264,6 +339,7 @@ async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
         chapter,
       };
       byId.set(chunk.id, indexed);
+      chunkMeta.push({ id: chunk.id, section, quality: indexed.quality, chapter });
       documents.push({ id: chunk.id, text: documentTextOf(source.path, chunk) });
       const pageKey = source.path + '#' + chunk.page;
       const pageGroup = byPage.get(pageKey);
@@ -293,6 +369,22 @@ async function buildIndex(fs: QueryFs, key: string): Promise<IndexSnapshot> {
   // and chapter weights are query-specific and arrive per call.
   const index = createBm25(documents, { documentWeight: (document) => byId.get(document.id)?.quality ?? 1 });
   const chapterIndex = createBm25(chapters.map((chapter) => ({ id: chapter.id, text: chapter.text })));
+  await writeSearchCache(fs, makeSearchCache({
+    catalogHash: catalogHashOf(key),
+    sources: sources.map((source) => ({
+      sha256: source.sha256,
+      path: source.path,
+      pages: source.pages,
+      family: assignments.bySha.get(source.sha256)?.id ?? source.sha256,
+    })),
+    chunks: chunkMeta,
+    chapters,
+    byPage: [...byPage],
+    bySection: [...bySection],
+    byChapter: [...byChapter],
+    postings: index.toPostings(),
+    chapterPostings: chapterIndex.toPostings(),
+  }));
 
   return {
     key,
