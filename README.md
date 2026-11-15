@@ -290,6 +290,12 @@ Known gaps and measured negative results:
   ("通用定时器 → TIM3"). Frequency-gated pairs were neutral (11/26). Set
   `glossaryExpansion: true` only for a library that mixes Chinese questions with
   English books.
+- A heavier layout extractor (MinerU / Docling) is **not** worth its footprint:
+  on the 12-question set's answer pages, 11/12 chunks already contain every
+  answer term, and BM25 is insensitive to formula and table layout — the
+  scanned books' text comes from the OCR fallback anyway (a separate gap). A
+  modern extractor mainly improves formula/table fidelity for downstream
+  reading, not page retrieval, so PyMuPDF stays the only extraction dependency.
 - A question whose answer spans a whole chapter still needs `expand: "section"`
   (or reading the neighbouring pages): the index ranks pages, not chapters.
 
