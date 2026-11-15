@@ -5,6 +5,8 @@ import { embedQuery } from '../adapters/embeddings/embedding.js';
 import type { EmbeddingEnvReport } from '../adapters/embeddings/embedding-env.js';
 import { emptyQueryReport, runQuery } from '../application/kb-query.js';
 import type { QueryReport, VectorStore } from '../application/kb-query.js';
+import { GLOSSARY_PATH, expansionEntries, parseGlossary } from '../application/glossary-store.js';
+import type { GlossaryEntry } from '../domain/glossary.js';
 import type { SchemaNode } from './definition.js';
 import { defineTool } from './definition.js';
 
@@ -12,6 +14,22 @@ export interface KbQueryArgs {
   readonly query: string;
   readonly topK?: number;
   readonly vaultPath?: string;
+  /** Return the page or section text around each hit; off by default. */
+  readonly expand?: 'none' | 'page' | 'section';
+  readonly maxContextChars?: number;
+}
+
+/**
+ * Bilingual pairs harvested while ingesting this vault. Read once per query: the file is a few
+ * hundred KB at most, and a missing file simply means "no vocabulary learned yet".
+ */
+function loadVaultGlossary(root: string): GlossaryEntry[] {
+  try {
+    const text = readFileSync(nodePath.join(root, ...GLOSSARY_PATH.split('/')), 'utf8');
+    return expansionEntries(parseGlossary(text));
+  } catch {
+    return [];
+  }
 }
 
 export interface KbQueryDeps {
@@ -21,6 +39,8 @@ export interface KbQueryDeps {
   readonly embedEnabled?: boolean;
   /** Workspace root used for the venv/temp directory; defaults to the vault root. */
   readonly workspaceRoot?: () => string;
+  /** Widen queries with the vault's harvested bilingual pairs. Off by default: measured neutral. */
+  readonly glossaryExpansion?: boolean;
 }
 
 const LINE_FEED = String.fromCharCode(10);
@@ -52,9 +72,11 @@ const OUTPUT_SCHEMA: SchemaNode = {
         properties: {
           path: { type: 'string', required: true },
           page: { type: 'integer', required: true },
+          pageEnd: { type: 'integer' },
           section: { type: 'string' },
           score: { type: 'number', required: true },
           excerpt: { type: 'string', required: true },
+          context: { type: 'string' },
         },
       },
     },
@@ -66,6 +88,7 @@ const OUTPUT_SCHEMA: SchemaNode = {
         sources: { type: 'integer', required: true },
         chunks: { type: 'integer', required: true },
         vectors: { type: 'integer' },
+        families: { type: 'integer' },
       },
     },
     retrieval: { type: 'string' },
@@ -135,8 +158,10 @@ function renderReport(report: QueryReport): string {
   const lines: string[] = [];
   lines.push('query: ' + report.query + ' | ' + report.searched.chunks + ' chunks from ' + report.searched.sources + ' sources | ' + mode + ' | ' + report.elapsedMs + ' ms');
   report.hits.forEach((hit, index) => {
-    lines.push('[' + (index + 1) + '] ' + hit.path + ' p.' + hit.page + (hit.section ? ' §' + hit.section : '') + ' (' + hit.score + ')');
+    const pages = hit.pageEnd === undefined ? ' p.' + hit.page : ' p.' + hit.page + '-' + hit.pageEnd;
+    lines.push('[' + (index + 1) + '] ' + hit.path + pages + (hit.section ? ' §' + hit.section : '') + ' (' + hit.score + ')');
     lines.push(hit.excerpt.replace(/\s+/g, ' '));
+    if (hit.context !== undefined && hit.context !== '') lines.push('--- context ---' + LINE_FEED + hit.context);
   });
   return lines.join(LINE_FEED);
 }
@@ -150,20 +175,31 @@ export function createKbQueryTool(deps: KbQueryDeps) {
       query: { type: 'string', required: true, description: 'Natural-language question or keywords (Chinese or English).' },
       topK: { type: 'integer', description: 'Maximum number of snippets (default 8).' },
       vaultPath: { type: 'string', description: 'Absolute vault path. Defaults to the plugin config, then vault discovery.' },
+      expand: {
+        type: 'string',
+        enum: ['none', 'page', 'section'],
+        description: 'Also return the surrounding page or the whole section for each hit (default none). Each hit carries the text in context; keep maxContextChars small.',
+      },
+      maxContextChars: { type: 'integer', description: 'Cap on context characters per hit (default 3000).' },
     },
     output: { schema: OUTPUT_SCHEMA, render: (_args, report) => [{ type: 'text', text: renderReport(report) }] },
     async execute(args) {
       let root = '(unresolved)';
       try {
         root = deps.resolveRoot(args.vaultPath);
+        const window = {
+          glossary: deps.glossaryExpansion === true ? loadVaultGlossary(root) : [],
+          ...(args.expand === undefined ? {} : { expand: args.expand }),
+          ...(args.maxContextChars === undefined ? {} : { maxContextChars: args.maxContextChars }),
+        };
         const vectors = deps.embedEnabled === false ? undefined : loadVectors(root);
         if (vectors === undefined || deps.prepareEmbedding === undefined) {
-          return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8);
+          return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8, window);
         }
         // A failed probe (no model yet) must not break search: fall back to BM25 silently.
         const env = await deps.prepareEmbedding().catch(() => undefined);
         if (env === undefined || !env.ok || !env.modelReady) {
-          return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8);
+          return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8, window);
         }
         const queryVector = await embedQuery({
           pythonPath: env.pythonPath,
@@ -172,6 +208,7 @@ export function createKbQueryTool(deps: KbQueryDeps) {
           text: args.query,
         });
         return await runQuery(new NodeVaultFs(root), args.query, args.topK ?? 8, {
+          ...window,
           vectors,
           vectorShare: VECTOR_SHARE,
           ...(queryVector === undefined ? {} : { queryVector }),

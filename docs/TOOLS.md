@@ -72,9 +72,13 @@ should be verified against the page image.
 
 Output: `ok`, `books[]` (`path`, `sha256`, `pages`, `chunks`, `tokens`,
 `status`, `ocrUsed?`, `error?`), `totals`, `indexPath`, `elapsedMs`, `python`
-(`pythonPath`, `source`, `venvPath`, `bootstrapped`) and, when OCR was resolved,
-`ocr` (`pythonPath`, `rapidocrVersion`, `installed`), so the caller can see which
-interpreter produced the text and whether it was OCR.
+(`pythonPath`, `source`, `venvPath`, `bootstrapped`), when OCR was resolved
+`ocr` (`pythonPath`, `rapidocrVersion`, `installed`), and `glossary`
+(`entries`, `added`). The glossary is a per-vault by-product: bilingual pairs
+harvested from the page text ("静态工作点 (quiescent operating point)") are merged
+into `.wiki/index/glossary.json`, capped at 4,000 entries and ranked by how many
+books use them. Queries do **not** consume it unless `glossaryExpansion` is
+enabled (see kb_query).
 
 On first use it prepares its own environment: probes an explicit `pythonPath`, the
 private venv, then `python`; if none can import PyMuPDF it creates
@@ -113,12 +117,33 @@ more than missing a common one), the TOC section is weighted above body text,
 and a query naming a device ("ADA4505", "MG996R") is scoped to the book whose
 file name carries that token.
 
-Input: `{ query: string, topK?: number, vaultPath?: string }`
+Two more signals come from the same index, no re-ingest needed. **Chapters**: a
+run of consecutive pages under one heading is indexed as a unit, and a hit inside
+a chapter whose title matches the query is weighted up (×1 + 0.5 × chapter score).
+Headings come from the PDF outline; for the 73 books without one (mostly scans)
+the heading is recovered from the page head ("447 9.4稳压管稳压电路" → "9.4 稳压管稳压电路").
+Recovered headings drive windows and chapter weighting but are **not** added to
+the searchable text, where they proved too noisy. **Edition families**: books with
+the same title key and a near-identical SimHash form a family, and no more than
+three hits per family are returned, so three editions of one textbook cannot
+crowd out the rest. The built index is cached per vault in the process keyed by
+the catalog bytes, which took a query from 3.6 s to ~0.45 s (the first query in a
+fresh process still pays the build).
 
-Output: `hits[]` (`path`, `page`, `section`, `score`, `excerpt`),
-`searched` (`sources`, `chunks`, `vectors` when hybrid), `retrieval`
-(`"bm25"` or `"hybrid"`). If the model or vectors are unavailable the query
-silently falls back to BM25 instead of failing.
+`expand: "section"` returns the whole contiguous chapter as `context` (broken at
+`maxContextChars`, 3,000 by default) plus `pageEnd` when the chapter spans
+several pages; `expand: "page"` returns every chunk of the hit page. Queries do
+not use the harvested glossary unless the plugin config sets
+`glossaryExpansion: true`; on the 26-question set the full harvested list cost
+five page hits, frequency-gated pairs were neutral.
+
+Input: `{ query: string, topK?: number, expand?: "none" | "page" | "section", maxContextChars?: number, vaultPath?: string }`
+
+Output: `hits[]` (`path`, `page`, `pageEnd?`, `section?`, `score`, `excerpt`,
+`context?`), `searched` (`sources`, `chunks`, `vectors` when hybrid, `families`
+when edition families were detected), `retrieval` (`"bm25"` or `"hybrid"`). If
+the model or vectors are unavailable the query silently falls back to BM25
+instead of failing.
 
 Every hit carries the note/book path, the 1-based page, and the TOC section.
 Answers must be built from these hits; the tool never invents a citation.

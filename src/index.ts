@@ -52,6 +52,12 @@ export interface KbPluginConfig {
   readonly embedModelDir?: string;
   /** Base URL the ONNX files are fetched from on first use. Default: hf-mirror. */
   readonly embedModelUrl?: string;
+  /**
+   * Widen queries with bilingual pairs harvested from this vault's books. Off by default: on the
+   * 26-question evaluation the full list cost five page hits, and frequency-gated pairs were
+   * neutral. Turn it on for a library that mixes Chinese questions with English books.
+   */
+  readonly glossaryExpansion?: boolean;
 }
 
 interface ToolsRegistry {
@@ -182,6 +188,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
         resolveRoot,
         workspaceRoot: () => workspaceRoot,
         embedEnabled,
+        glossaryExpansion: config.glossaryExpansion === true,
         ...(embedEnabled ? { prepareEmbedding: () => embeddingEnv() } : {}),
       }),
     );

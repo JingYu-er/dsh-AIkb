@@ -17,8 +17,20 @@ export interface Bm25Options {
   readonly documentWeight?: (document: Bm25Document) => number;
 }
 
+/** Loosely related terms (query expansion): scored, but they never lower the coverage of the question itself. */
+export interface Bm25Expansion {
+  readonly text: string;
+  /** How much an expansion match counts against a real query term. */
+  readonly scale?: number;
+}
+
 export interface Bm25Index {
-  search(query: string, topK?: number): Bm25Hit[];
+  search(
+    query: string,
+    topK?: number,
+    weight?: (document: Bm25Document, documentIndex: number) => number,
+    expansion?: Bm25Expansion,
+  ): Bm25Hit[];
   readonly size: number;
 }
 
@@ -53,9 +65,16 @@ export function createBm25(documents: readonly Bm25Document[], options: Bm25Opti
 
   return {
     size: documents.length,
-    search(query: string, topK = 8): Bm25Hit[] {
+    search(
+      query: string,
+      topK = 8,
+      weight?: (document: Bm25Document, documentIndex: number) => number,
+      expansion?: Bm25Expansion,
+    ): Bm25Hit[] {
       const queryTokens = [...new Set(tokenize(query))];
       if (queryTokens.length === 0 || documents.length === 0) return [];
+      const expansionTokens = expansion === undefined ? [] : [...new Set(tokenize(expansion.text))];
+      const expansionScale = expansion?.scale ?? 0.35;
       const hits: Bm25Hit[] = [];
       for (let index = 0; index < documents.length; index += 1) {
         const tokens = docTokens[index] ?? [];
@@ -79,7 +98,23 @@ export function createBm25(documents: readonly Bm25Document[], options: Bm25Opti
         // so a part number or a device name carries the match on its own.
         const coverage = totalWeight === 0 ? 0 : matchedWeight / totalWeight;
         score *= 0.4 + 0.6 * coverage;
-        if (documentWeight !== undefined) score *= documentWeight(documents[index] as Bm25Document);
+        // Expansion words help a translation reach a Chinese page, but at a fraction of the
+        // weight: otherwise an English phrase pulls a textbook question into a datasheet.
+        for (const token of expansionTokens) {
+          const frequency = frequencies.get(token);
+          if (frequency === undefined) continue;
+          const idfValue = idf.get(token) ?? 0;
+          const denominator = frequency + k1 * (1 - b + b * (tokens.length / (averageLength || 1)));
+          score += expansionScale * idfValue * ((frequency * (k1 + 1)) / denominator);
+        }
+        // Query-time weights (named device, chapter match) stay outside the cached index: the
+        // token counts are built once, only the multiplier is recomputed per query.
+        const factor = weight !== undefined
+          ? weight(documents[index] as Bm25Document, index)
+          : documentWeight !== undefined
+            ? documentWeight(documents[index] as Bm25Document)
+            : 1;
+        score *= factor;
         if (score > 0) hits.push({ id: documents[index]?.id ?? '', score });
       }
       hits.sort((left, right) => right.score - left.score);

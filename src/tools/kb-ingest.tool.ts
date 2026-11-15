@@ -76,6 +76,14 @@ const OUTPUT_SCHEMA: SchemaNode = {
         installed: { type: 'boolean', required: true },
       },
     },
+    glossary: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        entries: { type: 'integer', required: true },
+        added: { type: 'integer', required: true },
+      },
+    },
     books: {
       type: 'array',
       required: true,
@@ -118,6 +126,9 @@ function renderReport(report: IngestReport): string {
   }
   if (report.ocr !== undefined) {
     lines.push('ocr: RapidOCR ' + report.ocr.rapidocrVersion + ' via ' + report.ocr.pythonPath + (report.ocr.installed ? ' (installed just now)' : ''));
+  }
+  if (report.glossary !== undefined) {
+    lines.push('glossary: ' + report.glossary.entries + ' term pair(s), ' + report.glossary.added + ' new');
   }
   lines.push('ingested ' + report.totals.books + ' book(s): ' + report.totals.pages + ' pages, ' + report.totals.chunks + ' chunks, ~' + report.totals.tokens + ' tokens');
   for (const book of report.books.slice(0, 10)) {

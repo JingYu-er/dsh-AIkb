@@ -1,5 +1,8 @@
 import type { ChunkDraft } from '../domain/chunking.js';
 import { chunkPages, DEFAULT_CHUNK_OPTIONS } from '../domain/chunking.js';
+import type { HarvestedTerm } from '../domain/glossary-harvest.js';
+import { harvestTermPairs } from '../domain/glossary-harvest.js';
+import { GLOSSARY_PATH, loadGlossary, mergeGlossary, serializeGlossary } from './glossary-store.js';
 import { DomainError } from '../shared/result.js';
 
 export interface IngestEntry {
@@ -72,6 +75,11 @@ export interface IngestReport {
     readonly pythonPath: string;
     readonly rapidocrVersion: string;
     readonly installed: boolean;
+  };
+  /** Bilingual vocabulary learned from this run; feeds query expansion on the next search. */
+  readonly glossary?: {
+    readonly entries: number;
+    readonly added: number;
   };
   readonly elapsedMs: number;
 }
@@ -163,6 +171,7 @@ export async function runIngest(
     : { schema: INDEX_SCHEMA, updatedAt: new Date(0).toISOString(), sources: {} };
 
   const books: IngestBookReport[] = [];
+  const harvested: HarvestedTerm[] = [];
   for (const entry of selected) {
     const chunkPath = chunkFileOf(entry.sha256);
     if (options.force !== true && (await fs.exists(chunkPath))) {
@@ -211,6 +220,11 @@ export async function runIngest(
       const chunks = chunkPages(entry.sha256, extracted.pages, extracted.toc, options.chunkOptions ?? DEFAULT_CHUNK_OPTIONS);
       const tokens = chunks.reduce((sum, chunk) => sum + chunk.tokens, 0);
       await fs.writeText(chunkPath, serializeChunks(chunks));
+      // Harvest bilingual pairs while the text is still in memory: "静态工作点 (quiescent
+      // operating point)" and "Advanced RISC Machine (ARM)" are stated explicitly by books, so no
+      // model is needed to grow the query vocabulary.
+      for (const chunk of chunks) harvested.push(...harvestTermPairs(chunk.text));
+      harvested.push(...harvestTermPairs(entry.path));
       catalog.sources[entry.sha256] = {
         path: entry.path,
         format: entry.format,
@@ -236,6 +250,13 @@ export async function runIngest(
   catalog.updatedAt = new Date().toISOString();
   await fs.writeText(INDEX_CATALOG_PATH, JSON.stringify(catalog, null, 2) + LINE_FEED);
 
+  let glossary: { entries: number; added: number } | undefined;
+  if (harvested.length > 0) {
+    const merged = mergeGlossary(await loadGlossary(fs), harvested, '');
+    await fs.writeText(GLOSSARY_PATH, serializeGlossary(merged.file));
+    glossary = { entries: merged.file.entries.length, added: merged.added };
+  }
+
   const done = books.filter((book) => book.error === undefined);
   return {
     ok: true,
@@ -247,6 +268,7 @@ export async function runIngest(
       chunks: done.reduce((sum, book) => sum + book.chunks, 0),
       tokens: done.reduce((sum, book) => sum + book.tokens, 0),
     },
+    ...(glossary === undefined ? {} : { glossary }),
     elapsedMs: Date.now() - started,
   };
 }

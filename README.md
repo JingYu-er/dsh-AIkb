@@ -9,14 +9,14 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path is implemented and tested (34 unit tests):
+MVP read path is implemented and tested (62 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
 | `kb_doctor` | Vault discovery, layout and permission self-check. |
 | `kb_inventory` | Hash-index every binary source into `.wiki/books.jsonl`. |
-| `kb_ingest` | Page-anchored chunking + incremental local index. |
-| `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, device-name scoping, coverage weighting). Optional hybrid: vector hits fill the tail slots. |
+| `kb_ingest` | Page-anchored chunking + incremental local index; also harvests bilingual term pairs into `.wiki/index/glossary.json`. |
+| `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, device-name scoping, coverage weighting, chapter weighting, edition-family cap). Returns optional page windows and section context; hybrid vectors fill the tail slots. |
 | `kb_embed` | Local e5-small vectors over the chunk index, incremental per book. |
 | `kb_lint` | Read-only note hygiene: broken wikilinks, duplicate titles, orphan concept pages, missing frontmatter/type. |
 | `kb_suggest_links` | Read-only link candidates between notes that share rare terms, with a reason and a confidence. |
@@ -81,6 +81,7 @@ Configure the machine-specific parts in the profile's `cordis.patch.yml`
     embedEnabled: true                    # hybrid search (default on)
     embedModelDir: D:/path/to/e5-small    # default <workspaceRoot>/.kb/models/multilingual-e5-small
     embedModelUrl: https://hf-mirror.com/Xenova/multilingual-e5-small/resolve/main
+    glossaryExpansion: false              # widen queries with harvested pairs (measured neutral; off)
 ```
 
 ## Usage
@@ -91,44 +92,57 @@ kb_inventory { write: true }               # hash every PDF
 kb_ingest   { limit: 3 }                   # first three books
 kb_embed    { limit: 5 }                   # local vectors over the index (incremental)
 kb_query    { query: "镜像电流源 原理" }     # hits with page + section
+kb_query    { query: "…", expand: "section" }  # + page window and whole-section context
 kb_lint                                    # broken links / orphans / frontmatter
 kb_suggest_links { note: "学习/硬件/笔记/结电容.md" }   # candidate [[links]] (read-only)
 ```
 
 ## Retrieval quality
 
-Measured on the author's vault (173 indexed books, 22k page-anchored chunks,
-18.8k pages). Truth pages come from raw PyMuPDF text search, not from the
-retrieval system itself. Two numbers matter:
+Measured on the author's vault: 176 indexed books (3 of them OCR'd scans), 23,655
+page-anchored chunks, 26 questions (15 tuned, 11 held out). Truth pages come from
+raw PyMuPDF text search, never from the retrieval system itself. `topK = 8`, warm
+in-process index.
 
-- **exact page** — a top-5 hit lands in the truth book within ±2 pages of the
-  answer page. This is the citation-grade bar.
-- **topic** — a top-5 hit comes from the right book *family* (STM32 manuals,
-  MSP430 manuals, analog-electronics textbooks). Duplicated manuals answer the
-  question just as well, so this is the honest "can it answer" bar.
+- **page@5** — a top-5 hit lands in the truth book within ±2 pages.
+- **near@5** — within ±10 pages (the answer is on the neighbouring spread).
+- **book@5** — the right book even when the page drifted.
+- **window@5** — the truth page falls inside the returned section window
+  (`page`…`pageEnd`).
+- **topic@8** — any hit from the right book family.
 
-| Corpus | Set | exact page (top-5) | topic (top-5) |
-| --- | --- | --- | --- |
-| 10 books | Tuned (15 questions) | 13/15 | 15/15 |
-| 10 books | Held-out (11 questions) | 8/11 | 11/11 |
-| 173 books | Tuned | 6/15 | 15/15 |
-| 173 books | Held-out | 4/11 | 11/11 |
+| Set | page@5 | near@5 | book@5 | window@5 | topic@8 | MRR |
+| --- | --- | --- | --- | --- | --- | --- |
+| Tuned (15) | 6/15 | 7/15 | 12/15 | 7/15 | 15/15 | 0.20 |
+| Held out (11) | 5/11 | 6/11 | 8/11 | 5/11 | 11/11 | 0.21 |
+| All (26) | 11/26 (42%) | 13/26 | 20/26 (77%) | 12/26 | 26/26 | 0.20 |
 
-Growing the corpus from 10 to 173 books costs exact-page precision (near-duplicate
-manuals and textbooks compete) but never loses the topic: every question still
-surfaces the right book family in its top 5. Hits are capped at two per book so a
-single manual cannot fill the list.
+Hybrid retrieval (BM25 + e5-small) adds one page@8 and one window hit and nothing
+above: vector hits occupy at most the last `floor(topK × 0.25)` slots. The index
+is cached per vault in the process, which took a query from 3.6 s to ~0.45 s warm
+(the first query in a fresh process still pays the ~4 s build).
 
-What moves the number, in order of impact: the Chinese↔English glossary
-(6/15 → 12/15 on the tuned set — Chinese questions barely share surface tokens
-with English manuals), CJK bigram tokenization with question-filler filtering,
-IDF-weighted query coverage, and scoping a query to the book whose device name it
-contains ("ADA4505" → that datasheet).
+Growing the corpus to 176 books costs exact-page precision (near-duplicate
+textbooks and manuals compete) but never loses the topic. Hits are capped at two
+per book and three per edition family, so one book or one edition cannot fill the
+list. Chapter weighting (a hit inside a section whose title matches the query
+scores higher) and edition-family detection both derive from the existing index,
+so old corpora get them without re-ingesting a single PDF.
 
-Known gaps: questions whose answer spans a whole chapter rather than a page
-(FPE has no TOC, so no heading boost), and Chinese questions against English
-manuals outside the glossary. Local multilingual embeddings are the next lever;
-they are not wired yet.
+Known gaps and measured negative results:
+
+- Page drift inside the right book is the dominant error: the content is in the
+  right chapter, the page is 5–30 off. Section windows (`expand: "section"`) exist
+  for this; headings are recovered from page text for the 73 books without a PDF
+  outline (the three OCR'd textbooks among them).
+- Harvested bilingual pairs (`.wiki/index/glossary.json`) are **not** used to
+  widen queries by default. On this 26-question set, expanding with all 4,000
+  pairs lost five page hits (11/26 → 7/26): datasheet tables teach wrong pairs
+  ("通用定时器 → TIM3"). Frequency-gated pairs were neutral (11/26). Set
+  `glossaryExpansion: true` only for a library that mixes Chinese questions with
+  English books.
+- A question whose answer spans a whole chapter still needs `expand: "section"`
+  (or reading the neighbouring pages): the index ranks pages, not chapters.
 
 ## Design
 
