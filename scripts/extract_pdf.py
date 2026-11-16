@@ -1,5 +1,6 @@
 """Extract page text + outline from a PDF as JSON (stdout). Requires PyMuPDF."""
 import json
+import os
 import sys
 
 import fitz
@@ -70,6 +71,9 @@ def main() -> int:
     path = sys.argv[1]
     max_pages = int(sys.argv[2]) if len(sys.argv) > 2 else 0
     document = fitz.open(path)
+    # find_tables() costs ~0.2 s per page; a 1000-page manual would blow the extractor timeout, so
+    # only books small enough to be datasheets get table extraction (override with the env var).
+    table_pages = document.page_count <= int(os.environ.get("DSH_PDF_TABLE_MAX_PAGES", "400"))
     toc = [[level, title, page] for (level, title, page) in document.get_toc(simple=True)]
     pages = []
     for index, page in enumerate(document):
@@ -86,7 +90,8 @@ def main() -> int:
             if block[3] > rect.height * 0.94 and text.isdigit():
                 continue
             blocks.append(text)
-        blocks.extend(table_blocks(page))
+        if table_pages:
+            blocks.extend(table_blocks(page))
         blocks.extend(formula_blocks(page))
         pages.append({"page": index + 1, "width": rect.width, "height": rect.height, "blocks": blocks})
     text_chars = sum(len(block) for page in pages for block in page["blocks"])
