@@ -6,7 +6,7 @@ window.__ModuleLoader__.load({
     var exports = module.exports;
     var React = require('react');
     var ID = 'dsh-kb';
-    var SRC = 'http://127.0.0.1:7331/';
+    var SRC = 'http://127.0.0.1:7341/';
 
     function KbPage() {
       return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 } },

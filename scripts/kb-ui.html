@@ -32,7 +32,7 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
   <div id="search"><input id="q" placeholder="检索书库（回车）"><div id="hits"></div></div>
 </main>
 <script>
-var notes=[], current='', expanded={}, tree=null;
+var notes=[], current='', expanded={}, tree=null, currentMtime=0;
 var byId={
   tree:document.getElementById('tree'), editor:document.getElementById('editor'), path:document.getElementById('path'),
   save:document.getElementById('save'), status:document.getElementById('status'), filter:document.getElementById('filter'),
@@ -85,7 +85,7 @@ async function openNote(p){
   current=p; expandAncestors(p); render();
   var r=await fetch('/api/note?path='+encodeURIComponent(p)); var j=await r.json();
   if(!j.ok){byId.status.textContent='读取失败';return}
-  byId.path.textContent=p; byId.editor.value=j.text; byId.save.disabled=false; byId.status.textContent=''; loadLinks(p);
+  byId.path.textContent=p; byId.editor.value=j.text; currentMtime=j.mtime||0; byId.save.disabled=false; byId.status.textContent=''; loadLinks(p);
 }
 async function loadLinks(p){
   var r=await fetch('/api/links?path='+encodeURIComponent(p)); var j=await r.json();
@@ -100,8 +100,15 @@ document.getElementById('links').addEventListener('click',function(e){
   var el=e.target.closest('.lk'); if(!el)return; var p=el.getAttribute('data-p'); if(p) openNote(p);
 });
 byId.save.onclick=async function(){
-  var r=await fetch('/api/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:current,text:byId.editor.value})});
-  var j=await r.json(); byId.status.textContent=j.ok?'已保存':'保存失败';
+  var r=await fetch('/api/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:current,text:byId.editor.value,mtime:currentMtime})});
+  var j=await r.json();
+  if(j.ok){currentMtime=j.mtime||currentMtime;byId.status.textContent='已保存（备份 '+String(j.backup||'').split('/').pop()+'）';return}
+  if(j.code==='conflict'){
+    byId.editor.value=j.text; currentMtime=j.mtime||0;
+    byId.status.textContent='文件被别处改过，已载入最新版本，请重新编辑';
+    return;
+  }
+  byId.status.textContent='保存失败：'+(j.error||'');
 };
 byId.filter.oninput=render;
 async function load(){

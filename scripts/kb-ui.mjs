@@ -4,7 +4,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_VAULT = process.env.KB_VAULT ?? 'D:/JingYu/Desktop/ai-brain/MyObsidian';
-const PORT = Number(process.env.KB_UI_PORT ?? 7331);
+const PORT = Number(process.env.KB_UI_PORT ?? 7341);
 const pageFile = fileURLToPath(new URL('./kb-ui.html', import.meta.url));
 const page = () => readFileSync(pageFile, 'utf8');
 
@@ -150,7 +150,7 @@ createServer(async (req, res) => {
       if (full === undefined || !existsSync(full)) {
         return send(404, 'application/json', JSON.stringify({ ok: false, error: 'note not found' }));
       }
-      return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, text: readFileSync(full, 'utf8') }));
+      return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, text: readFileSync(full, 'utf8'), mtime: statSync(full).mtimeMs }));
     }
     if (url.pathname === '/api/save' && req.method === 'POST') {
       let body = '';
@@ -161,9 +161,18 @@ createServer(async (req, res) => {
       if (full === undefined) {
         return send(400, 'application/json', JSON.stringify({ ok: false, error: 'invalid path' }));
       }
+      // Someone (Obsidian, another editor) may have written the file since it was opened.
+      if (typeof parsed.mtime === 'number' && existsSync(full) && Math.abs(statSync(full).mtimeMs - parsed.mtime) > 1) {
+        return send(409, 'application/json', JSON.stringify({ ok: false, code: 'conflict', path: parsed.path, text: readFileSync(full, 'utf8'), mtime: statSync(full).mtimeMs }));
+      }
+      // Keep a copy before overwriting: .wiki/backups/<time>-<flattened path>.md
+      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const backup = join(vault, '.wiki/backups', stamp + '-' + String(parsed.path).split('/').join('__'));
+      mkdirSync(dirname(backup), { recursive: true });
+      if (existsSync(full)) writeFileSync(backup, readFileSync(full));
       mkdirSync(dirname(full), { recursive: true });
       writeFileSync(full, String(parsed.text ?? ''), 'utf8');
-      return send(200, 'application/json', JSON.stringify({ ok: true, path: parsed.path }));
+      return send(200, 'application/json', JSON.stringify({ ok: true, path: parsed.path, mtime: statSync(full).mtimeMs, backup }));
     }
     return send(404, 'text/plain', 'not found');
   } catch (error) {
