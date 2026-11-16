@@ -35,7 +35,9 @@ const LINK = /!?\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
 const KEY_LINE = /^([A-Za-z\u4e00-\u9fa5][\w\u4e00-\u9fa5-]*)\s*:\s*(.*)$/;
 const ATTACHMENT = /\.(png|jpe?g|gif|webp|svg|pdf|mp4|canvas|excalidraw|base)$/i;
 /** Plugin/skill folders that ship example markdown; they are not knowledge notes. */
-const SKIP_PREFIX = /^(copilot|\.agents|\.claude|\.wiki)\//i;
+const SKIP_PREFIX = /^(copilot|\.agents|\.claude|\.wiki|砖块)\//i;
+/** Raw conversation records keep their original links; auditing them against today's rules is noise. */
+const SKIP_FILES = new Set(['最初的会话.md']);
 /** Compiled drafts in inbox are machine copies; their source draft is the note to lint. */
 const COMPILED_PREFIX = /^inbox\/_compiled\//i;
 /** Template folders hold Templater placeholders, not real notes. */
@@ -120,6 +122,7 @@ export async function runLint(fs: LintFs, vaultRoot: string): Promise<LintReport
     (entry) =>
       /\.md$/i.test(entry.relPath) &&
       !SKIP_PREFIX.test(entry.relPath) &&
+      !SKIP_FILES.has(entry.relPath) &&
       !COMPILED_PREFIX.test(entry.relPath) &&
       !QUEUE_PREFIX.test(entry.relPath) &&
       !TEMPLATE_PREFIX.test(entry.relPath) &&
@@ -168,8 +171,10 @@ export async function runLint(fs: LintFs, vaultRoot: string): Promise<LintReport
   const typeByPath = new Map(records.map((record) => [record.path, record.type]));
 
   for (const [name, paths] of byName) {
-    if (paths.length < 2) continue;
-    for (const path of paths.slice(1)) {
+    // An inbox draft intentionally mirrors the promoted note: same title is not a collision.
+    const real = paths.filter((path) => !path.startsWith('inbox/'));
+    if (real.length < 2) continue;
+    for (const path of real.slice(1)) {
       pushFinding(findings, counts, { rule: 'title.duplicate', severity: 'warn', path, detail: 'another note is also named "' + name + '"' });
     }
   }
