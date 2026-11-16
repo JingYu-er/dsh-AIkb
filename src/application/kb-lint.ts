@@ -189,6 +189,7 @@ export async function runLint(fs: LintFs, vaultRoot: string): Promise<LintReport
     if (record.links.length > MAX_OUTLINKS) {
       pushFinding(findings, counts, { rule: 'link-flood', severity: 'warn', path: record.path, detail: 'outlinks=' + record.links.length + ' (>' + MAX_OUTLINKS + ')' });
     }
+    if (record.type === 'link') continue;
     for (const line of associationSection(record.text).split('\n')) {
       if (!ASSOCIATION_ITEM.test(line)) continue;
       if (HAS_WHY.test(line)) continue;

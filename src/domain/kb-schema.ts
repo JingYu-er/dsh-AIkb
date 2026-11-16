@@ -1,9 +1,9 @@
 /** Note taxonomy from the vault SCHEMA (SCHEMA.md); the compile layer speaks these names. */
 
-export type SchemaNoteType = 'concept' | 'thought' | 'source' | 'reference' | 'log' | 'moc' | 'draft' | 'unknown';
+export type SchemaNoteType = 'concept' | 'thought' | 'source' | 'reference' | 'log' | 'link' | 'moc' | 'draft' | 'unknown';
 
 /** Display order used by index.md and by the link engine. */
-export const SCHEMA_TYPES: readonly SchemaNoteType[] = ['concept', 'thought', 'source', 'reference', 'log', 'moc', 'draft', 'unknown'];
+export const SCHEMA_TYPES: readonly SchemaNoteType[] = ['concept', 'thought', 'source', 'reference', 'log', 'link', 'moc', 'draft', 'unknown'];
 
 export const SCHEMA_TYPE_LABEL: Readonly<Record<SchemaNoteType, string>> = {
   concept: '概念 / concept',
@@ -11,6 +11,7 @@ export const SCHEMA_TYPE_LABEL: Readonly<Record<SchemaNoteType, string>> = {
   source: '来源 / source',
   reference: '速查 / reference',
   log: '记录 / log',
+  link: '引用 / link',
   moc: '地图 / moc',
   draft: '草稿 / draft',
   unknown: '未分类 / unknown',
@@ -33,6 +34,9 @@ const ALIASES: Readonly<Record<string, SchemaNoteType>> = {
   '记录': 'log',
   '日志': 'log',
   '随记': 'log',
+  link: 'link',
+  '引用': 'link',
+  '链接': 'link',
   moc: 'moc',
   map: 'moc',
   '地图': 'moc',
