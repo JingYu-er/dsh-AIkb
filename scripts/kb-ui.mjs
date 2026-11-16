@@ -3,6 +3,18 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSy
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const distUrl = (rel) => new URL('../dist/' + rel, import.meta.url).href;
+const { NodeInboxFs } = await import(distUrl('adapters/fs/inbox-fs.js'));
+const { NodePromoteFs } = await import(distUrl('adapters/fs/promote-fs.js'));
+const { runCompile } = await import(distUrl('application/kb-compile.js'));
+const { runPromote } = await import(distUrl('application/kb-promote.js'));
+
+const readBody = async (req) => {
+  let body = '';
+  for await (const part of req) body += part;
+  return body;
+};
+
 const DEFAULT_VAULT = process.env.KB_VAULT ?? 'D:/JingYu/Desktop/ai-brain/MyObsidian';
 const PORT = Number(process.env.KB_UI_PORT ?? 7341);
 const pageFile = fileURLToPath(new URL('./kb-ui.html', import.meta.url));
@@ -153,6 +165,50 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/notes') {
       const vault = vaultFor(url.searchParams.get('address') || '');
       return send(200, 'application/json', JSON.stringify({ ok: true, vault, notes: listNotes(vault) }));
+    }
+    if (url.pathname === '/api/drafts') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const inbox = new NodeInboxFs(vault);
+      const drafts = (await inbox.listDrafts()).filter((p) => !p.startsWith('_compiled/'));
+      let compiled = [];
+      const promoteDir = process.env.KB_PROMOTE_DIR ?? '';
+      if (promoteDir !== '') {
+        try {
+          compiled = [...(await new NodePromoteFs(vault, promoteDir).listCompiled())];
+        } catch {
+          compiled = [];
+        }
+      }
+      return send(200, 'application/json', JSON.stringify({ ok: true, drafts, compiled, promoteDir }));
+    }
+    if (url.pathname === '/api/draft') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = url.searchParams.get('path') ?? '';
+      try {
+        return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, text: await new NodeInboxFs(vault).readText(rel) }));
+      } catch (error) {
+        return send(404, 'application/json', JSON.stringify({ ok: false, error: String(error.message).slice(0, 120) }));
+      }
+    }
+    if (url.pathname === '/api/compile' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const report = await runCompile(new NodeInboxFs(vault), vault, { paths: parsed.paths, dryRun: parsed.dryRun === true, force: parsed.force === true });
+      return send(200, 'application/json', JSON.stringify(report));
+    }
+    if (url.pathname === '/api/promote' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const promoteDir = process.env.KB_PROMOTE_DIR ?? '';
+      if (promoteDir === '') {
+        return send(400, 'application/json', JSON.stringify({ ok: false, error: 'KB_PROMOTE_DIR is not configured (promoteDir)' }));
+      }
+      const report = await runPromote(new NodePromoteFs(vault, promoteDir), vault, promoteDir, {
+        source: parsed.source,
+        confirm: parsed.confirm === true,
+        force: parsed.force === true,
+      });
+      return send(200, 'application/json', JSON.stringify(report));
     }
     if (url.pathname === '/api/links') {
       const vault = vaultFor(url.searchParams.get('address') || '');

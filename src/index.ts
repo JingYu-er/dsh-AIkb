@@ -148,6 +148,8 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
           ...process.env,
           KB_VAULT: (config as unknown as { vaultPath?: string }).vaultPath ?? process.env.KB_VAULT ?? '',
           KB_UI_PORT: port,
+          KB_PROMOTE_DIR: (config as { promoteDir?: string }).promoteDir ?? '',
+          KB_ALLOW_WRITES: config.allowWrites === true ? '1' : '0',
         },
       });
       child.unref();

@@ -20,8 +20,17 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
 .meta{font-size:12px;color:#8b96a8}.meta b{color:#9cc7ff}.ex{white-space:pre-wrap;color:#cfd6e2;margin-top:6px}
 #links{flex:none;max-height:30%;overflow:auto;border-top:1px solid #2a2e36;padding:6px 12px;font-size:12px;color:#8b96a8;display:none}
 .grp{margin:3px 0;color:#c3ccda}.lk{padding:2px 0;cursor:pointer;color:#9cc7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lk.broken{color:#d98a8a;cursor:default}
+#drafts{display:none;flex:1;min-height:0}
+#dlist{width:290px;border-right:1px solid #2a2e36;overflow:auto;padding:6px 0;flex:none}
+#dview{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px 14px;gap:8px;overflow:auto}
+#dtext,#dreport{white-space:pre-wrap;font:12px/1.6 ui-monospace,Consolas,monospace;background:#191d24;border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:0;overflow:auto}
+#dtext{color:#cfd6e2;max-height:40%}
+#dreport{color:#9fd0a8}
+.ditem{padding:3px 12px;cursor:pointer;color:#c3ccda;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ditem:hover{background:#1d222b}.ditem.on{background:#263041;color:#fff}
+.dgrp{padding:6px 12px 2px;color:#8b96a8;font-size:11px}
 </style>
-<header><b>dsh-kb</b><span class="tab on" id="t-notes">笔记</span><span class="tab" id="t-search">检索</span><span id="status" style="margin-left:auto;color:#7d8798;font-size:12px"></span></header>
+<header><b>dsh-kb</b><span class="tab on" id="t-notes">笔记</span><span class="tab" id="t-search">检索</span><span class="tab" id="t-drafts">草稿</span><span id="status" style="margin-left:auto;color:#7d8798;font-size:12px"></span></header>
 <main>
   <aside><input id="filter" placeholder="过滤笔记…"><div id="tree"></div></aside>
   <div id="pane">
@@ -30,6 +39,14 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
     <div id="links"></div>
   </div>
   <div id="search"><input id="q" placeholder="检索书库（回车）"><div id="hits"></div></div>
+  <div id="drafts">
+    <div id="dlist"></div>
+    <div id="dview">
+      <div style="display:flex;gap:8px;align-items:center"><span id="dpath" style="color:#8b96a8;font-size:12px">未选择草稿</span><span style="margin-left:auto"></span><button id="dcompile">编译</button><button id="dpreview">预览合并</button><button id="dconfirm">确认落盘</button></div>
+      <pre id="dtext"></pre>
+      <pre id="dreport"></pre>
+    </div>
+  </div>
 </main>
 <script>
 var notes=[], current='', expanded={}, tree=null, currentMtime=0;
@@ -37,6 +54,8 @@ var byId={
   tree:document.getElementById('tree'), editor:document.getElementById('editor'), path:document.getElementById('path'),
   save:document.getElementById('save'), status:document.getElementById('status'), filter:document.getElementById('filter'),
   q:document.getElementById('q'), hits:document.getElementById('hits'), search:document.getElementById('search'),
+  drafts:document.getElementById('drafts'), dlist:document.getElementById('dlist'), dtext:document.getElementById('dtext'),
+  dreport:document.getElementById('dreport'), dpath:document.getElementById('dpath'), tDrafts:document.getElementById('t-drafts'),
   links:document.getElementById('links'),
   pane:document.getElementById('pane'), tNotes:document.getElementById('t-notes'), tSearch:document.getElementById('t-search')
 };
@@ -120,8 +139,57 @@ async function load(){
   if(!j.ok){byId.status.textContent='加载失败';return}
   notes=j.notes||[]; tree=build(notes); byId.status.textContent=notes.length+' 篇笔记'; render();
 }
-byId.tNotes.onclick=function(){byId.tNotes.classList.add('on');byId.tSearch.classList.remove('on');byId.pane.style.display='flex';byId.search.style.display='none'};
-byId.tSearch.onclick=function(){byId.tSearch.classList.add('on');byId.tNotes.classList.remove('on');byId.search.style.display='flex';byId.pane.style.display='none'};
+function showTab(which){
+  byId.tNotes.classList.toggle('on',which==='notes');
+  byId.tSearch.classList.toggle('on',which==='search');
+  byId.tDrafts.classList.toggle('on',which==='drafts');
+  byId.pane.style.display=which==='notes'?'flex':'none';
+  byId.search.style.display=which==='search'?'flex':'none';
+  byId.drafts.style.display=which==='drafts'?'flex':'none';
+  if(which==='drafts')loadDrafts();
+}
+byId.tNotes.onclick=function(){showTab('notes')};
+byId.tSearch.onclick=function(){showTab('search')};
+byId.tDrafts.onclick=function(){showTab('drafts')};
+var dCur={kind:'',path:''};
+async function loadDrafts(){
+  var j=await (await fetch('/api/drafts')).json(); if(!j.ok)return;
+  var h='';
+  if(j.drafts.length)h+='<div class="dgrp">收件箱 '+j.drafts.length+'</div>'+j.drafts.map(function(p){return '<div class="ditem" data-k="draft" data-p="'+esc(p)+'">'+esc(p)+'</div>'}).join('');
+  if(j.compiled.length)h+='<div class="dgrp">已编译 '+j.compiled.length+'</div>'+j.compiled.map(function(p){return '<div class="ditem" data-k="compiled" data-p="'+esc(p)+'">'+esc(p)+'</div>'}).join('');
+  byId.dlist.innerHTML=h||'<div class="dgrp">没有草稿</div>';
+}
+byId.dlist.addEventListener('click',async function(e){
+  var el=e.target.closest('.ditem'); if(!el)return;
+  dCur={kind:el.getAttribute('data-k'),path:el.getAttribute('data-p')};
+  Array.prototype.forEach.call(byId.dlist.querySelectorAll('.ditem'),function(n){n.classList.remove('on')}); el.classList.add('on');
+  byId.dpath.textContent=dCur.kind+' · '+dCur.path;
+  var j=await (await fetch('/api/draft?path='+encodeURIComponent(dCur.path))).json();
+  byId.dtext.textContent=j.ok?j.text:('读取失败：'+j.error);
+  byId.dreport.textContent='';
+});
+document.getElementById('dcompile').onclick=async function(){
+  if(dCur.kind!=='draft'){byId.dreport.textContent='先选一篇收件箱草稿';return}
+  var j=await (await fetch('/api/compile',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({paths:[dCur.path]})})).json();
+  var n=(j.notes||[])[0]||{};
+  byId.dreport.textContent='编译：'+(n.written?'已写入 ':'未写入 ')+(n.output||n.error||'')+'
+'+(n.changes||[]).join('
+');
+  loadDrafts();
+};
+async function promote(confirm){
+  if(dCur.kind!=='compiled'){byId.dreport.textContent='先选一篇已编译草稿';return}
+  var j=await (await fetch('/api/promote',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({source:dCur.path,confirm:confirm,force:confirm})})).json();
+  if(j.ok===false){byId.dreport.textContent='失败：'+(j.error||'');return}
+  byId.dreport.textContent=(j.notes||[]).map(function(n){return n.status+' '+n.source+' -> '+n.target+'
+'+(n.diff||[]).map(function(d){return '  '+d.kind+' '+d.text}).join('
+')}).join('
+---
+')||'没有可提升的草稿';
+  if(confirm)loadDrafts();
+}
+document.getElementById('dpreview').onclick=function(){promote(false)};
+document.getElementById('dconfirm').onclick=function(){promote(true)};
 byId.q.addEventListener('keydown',async function(e){
   if(e.key!=='Enter')return; var text=byId.q.value.trim(); if(!text)return;
   byId.hits.textContent='检索中…';
