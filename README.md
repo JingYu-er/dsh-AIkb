@@ -330,14 +330,21 @@ Known gaps and measured negative results:
   scanned books' text comes from the OCR fallback anyway (a separate gap). A
   modern extractor mainly improves formula/table fidelity for downstream
   reading, not page retrieval, so PyMuPDF stays the only extraction dependency.
+- Re-aiming a hit at the page inside its chapter with the best query-term
+  coverage moves pages (6 of 12 zh2 queries, always 1–5 pages) but changes no
+  metric: zh 2/11/12 MRR 0.20 and zh2 6/9/9 MRR 0.57, with and without rerank.
+  Reverted — the drift that matters crosses section boundaries, so the lever is
+  section detection, not intra-section page choice.
 - A question whose answer spans a whole chapter still needs `expand: "section"`
   (or reading the neighbouring pages): the index ranks pages, not chapters.
 
 ## Design
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the DDD layering, the
-bounded contexts and the generalization contract, and
-[docs/TOOLS.md](docs/TOOLS.md) for the tool contracts and error codes.
+bounded contexts and the generalization contract,
+[docs/TOOLS.md](docs/TOOLS.md) for the tool contracts and error codes, and
+[docs/NOTES.md](docs/NOTES.md) for the development log — what was tried, what it
+measured, and why it was kept, changed or reverted.
 
 Hard boundaries, enforced in code rather than in prompts:
 
