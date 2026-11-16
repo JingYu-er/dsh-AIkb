@@ -135,9 +135,16 @@ byId.save.onclick=async function(){
 };
 byId.filter.oninput=render;
 async function load(){
-  var r=await fetch('/api/notes'); var j=await r.json();
-  if(!j.ok){byId.status.textContent='加载失败';return}
-  notes=j.notes||[]; tree=build(notes); byId.status.textContent=notes.length+' 篇笔记'; render();
+  try{
+    var r=await fetch('/api/notes'); var j=await r.json();
+    if(!j.ok){throw new Error(j.error||'bad response')}
+    notes=j.notes||[]; tree=build(notes); byId.status.textContent=notes.length+' 篇笔记'; render();
+    return true;
+  }catch(e){
+    byId.status.textContent='知识库服务正在启动…';
+    setTimeout(load,1500);
+    return false;
+  }
 }
 function showTab(which){
   byId.tNotes.classList.toggle('on',which==='notes');

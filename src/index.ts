@@ -145,12 +145,22 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
       const configuredVault = config.vaultPath !== undefined && config.vaultPath.trim() !== ''
         ? nodePath.resolve(config.vaultPath.trim())
         : process.env.KB_VAULT ?? '';
-      await startUiServer({
-        port: Number(port),
-        vault: configuredVault,
-        promoteDir: (config as { promoteDir?: string }).promoteDir ?? '',
-      });
-      logBoot(bootRoot, 'ui-start', 'in-process ' + script);
+      // A port still held by a previous process must not leave the panel blank: retry briefly.
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        try {
+          await startUiServer({
+            port: Number(port),
+            vault: configuredVault,
+            promoteDir: (config as { promoteDir?: string }).promoteDir ?? '',
+          });
+          logBoot(bootRoot, 'ui-start', 'in-process ' + script + ' attempt ' + attempt);
+          return;
+        } catch (error) {
+          logBoot(bootRoot, 'ui-start-retry', attempt + ': ' + String(error));
+          if (attempt === 5) throw error;
+          await new Promise((done) => setTimeout(done, 1000));
+        }
+      }
     } catch (error) {
       logBoot(bootRoot, 'ui-start-failed', String(error));
     }
