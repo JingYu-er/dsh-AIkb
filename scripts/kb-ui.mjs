@@ -1,11 +1,12 @@
 import { createServer } from 'node:http';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_VAULT = process.env.KB_VAULT ?? 'D:/JingYu/Desktop/ai-brain/MyObsidian';
 const PORT = Number(process.env.KB_UI_PORT ?? 7317);
-const page = readFileSync(fileURLToPath(new URL('./kb-ui.html', import.meta.url)), 'utf8');
+const pageFile = fileURLToPath(new URL('./kb-ui.html', import.meta.url));
+const page = () => readFileSync(pageFile, 'utf8');
 
 /**
  * One workspace, one vault: the nearest .dsh-kb.json above the open file (or the workspace
@@ -39,13 +40,48 @@ const fsFor = (vault) => ({
   exists: async (rel) => existsSync(join(vault, rel)),
   readText: async (rel) => readFileSync(join(vault, rel), 'utf8'),
 });
+
+/** Markdown notes under the vault, skipping dot-directories and the index itself. */
+const listNotes = (vault, limit = 3000) => {
+  const notes = [];
+  const walk = (dir, depth) => {
+    if (depth > 8 || notes.length >= limit) return;
+    let entries = [];
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (notes.length >= limit) return;
+      if (entry.name.startsWith('.')) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (entry.name === 'node_modules') continue;
+        walk(full, depth + 1);
+      } else if (entry.name.toLowerCase().endsWith('.md')) {
+        notes.push(full.slice(vault.length).replace(/^[\\/]/, '').split('\\').join('/'));
+      }
+    }
+  };
+  walk(vault, 0);
+  notes.sort();
+  return notes;
+};
+
+/** Resolve a vault-relative path and refuse anything that escapes the vault. */
+const notePath = (vault, relative) => {
+  const full = join(vault, relative);
+  if (!full.startsWith(vault) || !full.toLowerCase().endsWith('.md')) return undefined;
+  return full;
+};
 const { runQuery } = await import('../dist/application/kb-query.js');
 
 createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const send = (code, type, body) => { res.writeHead(code, { 'content-type': type }); res.end(body); };
   try {
-    if (url.pathname === '/') return send(200, 'text/html; charset=utf-8', page);
+    if (url.pathname === '/') return send(200, 'text/html; charset=utf-8', page());
     if (url.pathname === '/api/query') {
       const q = url.searchParams.get('q') ?? '';
       const k = Math.min(20, Math.max(1, Number(url.searchParams.get('k') ?? 8)));
@@ -58,6 +94,32 @@ createServer(async (req, res) => {
       const result = await runQuery(fs, path.split('/').pop() ?? '', 1, { expand: 'section' });
       const hit = result.hits[0];
       return send(200, 'application/json', JSON.stringify({ ok: true, context: hit?.context ?? '（没有找到这一章）' }));
+    }
+    if (url.pathname === '/api/notes') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      return send(200, 'application/json', JSON.stringify({ ok: true, vault, notes: listNotes(vault) }));
+    }
+    if (url.pathname === '/api/note') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = url.searchParams.get('path') ?? '';
+      const full = notePath(vault, rel);
+      if (full === undefined || !existsSync(full)) {
+        return send(404, 'application/json', JSON.stringify({ ok: false, error: 'note not found' }));
+      }
+      return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, text: readFileSync(full, 'utf8') }));
+    }
+    if (url.pathname === '/api/save' && req.method === 'POST') {
+      let body = '';
+      for await (const part of req) body += part;
+      const parsed = JSON.parse(body);
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const full = notePath(vault, String(parsed.path ?? ''));
+      if (full === undefined) {
+        return send(400, 'application/json', JSON.stringify({ ok: false, error: 'invalid path' }));
+      }
+      mkdirSync(dirname(full), { recursive: true });
+      writeFileSync(full, String(parsed.text ?? ''), 'utf8');
+      return send(200, 'application/json', JSON.stringify({ ok: true, path: parsed.path }));
     }
     return send(404, 'text/plain', 'not found');
   } catch (error) {
