@@ -10,6 +10,33 @@ the decision, and how to reproduce. Benchmarks come from `bench/run.mjs`
 
 ---
 
+## 2026-11-16 — where the drift actually lives (section audit)
+
+**Audit.** 181 books, 22,573 pages. PDF-outline headings cover 16,537 pages; the
+page-head recovery covers only 374 of the 5,813 pages in the 73 books without an
+outline. Chapters (runs of an equal heading) number **7,894, of which 5,435 (69%)
+are one page** — outline entries go as deep as "6.2.3", so every heading change
+starts a "chapter" and `expand: "section"` returns a single page for most books.
+Reproduce: `node temp/section-audit.mjs`.
+
+**Experiment 1 — chapter depth.** Start a new chapter only when the heading depth
+is at most N, so "6.2.3 …" stays inside "6.2 …". Depth 2: zh page@5 11→9,
+MRR 0.20→0.18 (worse); zh2 unchanged but book@5 11→12. Depth 3: identical to
+baseline everywhere. Reverted — chapter weighting shifts through the broader
+titles, the page never moves.
+
+**Experiment 2 — rerank blend sweep.** blend 0.2: zh page@5 14/26, MRR 0.29
+(worse than 0.3). blend 0.5: zh book@5 21→22 and ndcg 0.374→0.380, but zh2
+page@1 7→5 and MRR 0.60→0.52. Keep 0.3.
+
+**Conclusion.** Page drift is not a grouping problem: the chapter structure
+already exists, and re-cutting it changes ranking without moving pages. The only
+lever that moved page metrics is the cross-encoder, which is already on. Remaining
+options, cheapest first: (a) answer at chapter level and read with
+`expand: "section"`; (b) improve per-page text (layout-aware block order in OCR)
+— expensive, needs an A/B; (c) learn a page selector from labelled queries —
+overfits the 38 questions available today.
+
 ## 2026-11-16 — intra-chapter page picking: implementable, but inert
 
 **Question.** Page drift (right chapter, page off by 5–30) is the dominant error.

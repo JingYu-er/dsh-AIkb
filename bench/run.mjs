@@ -24,6 +24,8 @@ const mode = value('mode', 'bm25');
 const useMulti = flag('multi');
 const useRerank = flag('rerank');
 const useExpand = value('expand', 'none');
+const rerankBlend = Number(value('rerank-blend', '0')) || undefined;
+const rerankPool = Number(value('rerank-pool', '0')) || undefined;
 const topK = Number(value('topk', '8'));
 const outPath = value('json', '');
 const verbose = flag('verbose');
@@ -115,6 +117,8 @@ for (const setName of setNames) {
       };
     }
     if (useExpand !== 'none') options.expand = useExpand;
+  if (rerankBlend !== undefined) options.rerankBlend = rerankBlend;
+  if (rerankPool !== undefined) options.rerankPool = rerankPool;
     if (mode === 'hybrid') {
       const vector = await embedQuery({ pythonPath, workspaceRoot: WORKSPACE, modelDir: embeddingModel, text: query, threads: 8 });
       if (vector !== undefined) options.queryVector = vector;

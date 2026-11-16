@@ -330,6 +330,11 @@ Known gaps and measured negative results:
   scanned books' text comes from the OCR fallback anyway (a separate gap). A
   modern extractor mainly improves formula/table fidelity for downstream
   reading, not page retrieval, so PyMuPDF stays the only extraction dependency.
+- The index has 7,894 chapters but 69% are one page (outline headings reach
+  "6.2.3"), so `expand: "section"` is a page for most books. Re-cutting chapters
+  by heading depth is neutral-to-negative (depth 2: zh page@5 11→9, MRR 0.20→0.18;
+  depth 3: no change), and a rerank blend sweep only traded zh2 against zh. Page
+  drift is not a grouping problem.
 - Re-aiming a hit at the page inside its chapter with the best query-term
   coverage moves pages (6 of 12 zh2 queries, always 1–5 pages) but changes no
   metric: zh 2/11/12 MRR 0.20 and zh2 6/9/9 MRR 0.57, with and without rerank.
