@@ -358,3 +358,74 @@ adds index size (55.9 K tokens).
   invisible to the doctor unless it uses `listDir()`.
 - **Bench numbers are CPU-sensitive**: rerank latency roughly doubles while a
   background OCR job is running; compare like with like.
+
+---
+
+## 2026-11-16 — 编译层 v1：index.md / log.md 与链接策略引擎
+
+**问题.** The vault had no global picture and no enforcement of the SCHEMA link
+discipline. A real scan showed 503 notes, 499 of them without a `type`
+(concept 0 · thought 2 · source 0 · moc 0 · draft 2), 257 orphans and 13 broken
+links; `kb_suggest_links` proposed pairs but nothing recorded direction, nothing
+required a `why`, and nothing kept an audit trail. The first `index.md` also
+exposed a scope bug: the index picked up `copilot/skills/**` and template trees,
+while lint skipped them and then parsed the generated `index.md` as a note —
+1,282 phantom broken links.
+
+**改动.**
+- `src/application/kb-index.ts`: one scan of every markdown note (dot dirs,
+  `node_modules`, `copilot/`, `.agents/`, `.claude/`, template trees,
+  `inbox/_compiled/`, `inbox/links/`, excalidraw sidecars and `index.md`/`log.md`
+  skipped); reads frontmatter `type`/`title`/`tags`/`status` and `[[wikilinks]]`;
+  inbox notes are always `draft`; renders `index.md` (stats, recent 10, orphans,
+  untyped, broken; then one section per type ordered by inbound).
+- `src/application/kb-log.ts`: `appendLog` writes
+  `- <ISO8601> | <action> | <path> | <summary>` to `log.md`, writes the
+  append-only header once, and `appendLogSafe` never throws.
+- `kb_promote` (after `confirm:true`) and `kb_compile` (after writing compiled
+  drafts) each append one log line; a log failure only warns.
+- `src/application/kb-links.ts`: `reviewLinks` reuses `kb_suggest_links`
+  (`perNote` is now an option, 8 here), resolves targets to real notes, flips
+  direction when only the reverse is allowed, drops confidence < 0.25, caps 8
+  rows per note and writes `inbox/links/<slug>.md` queues (`type: link-queue`,
+  five-column table whose empty `why` means not approved). `applyLinks` reads
+  only rows with a `why`, previews a line diff by default, appends
+  `- [[target]] — why` to the `## 关联` section, backs up to
+  `.wiki/backups/<ISO>-<flatten>.md`, marks the row `[x]` and logs the link.
+- `kb_lint` gained four fixed rules — `link-missing-why`,
+  `link-wrong-direction`, `link-flood` (>30 outlinks) and `orphan` — and now
+  shares the index skip list (templates, generated files, excalidraw) and
+  strips a trailing `.md` from link targets.
+
+**真实数字（D:/JingYu/Desktop/ai-brain/MyObsidian, 2026-11-16）.**
+- `index.md`: 503 notes · concept 0 · thought 2 · source 0 · moc 0 · draft 2 ·
+  unknown 499 · inbox 2; 孤儿 257 · 断链 13 · 待整理 499. 235 ms dry, 262 ms
+  write; index.md 108,791 bytes, log.md 380 bytes.
+- `kb_link_review` dry: 57 candidates in 45 queues from 503 notes, 0 rejected by
+  direction, 670 ms. All edges are `unknown→unknown` because 499 notes have no
+  `type`; they carry the 方向未在 SCHEMA 中明确 warning.
+- `kb_lint`: 504 notes (SCHEMA.md included, index/log excluded) —
+  frontmatter.missing 123, frontmatter.type 378, link.broken 21,
+  title.duplicate 3, orphan 257, link-missing-why 0, link-wrong-direction 0,
+  link-flood 0.
+
+**用法.**
+```text
+kb_index {}                                            # preview + stats
+kb_index { write: true }                               # rebuild index.md + one log line
+kb_link_review { note: "学习/硬件/笔记/结电容.md" }      # preview candidates
+kb_link_review { write: true }                         # queues in inbox/links/
+# fill in why on the rows you approve, then:
+kb_link_apply { queue: "inbox/links/…" }                # diff preview
+kb_link_apply { queue: "inbox/links/…", confirm: true } # append + backup + log
+```
+
+**复现.**
+```bash
+npm run build && npm test
+node --input-type=module -e "import {NodeNotesFs} from './dist/adapters/fs/notes-fs.js'; import {runIndex} from './dist/application/kb-index.js'; const root='D:/JingYu/Desktop/ai-brain/MyObsidian'; console.log((await runIndex(new NodeNotesFs(root), root)).stats)"
+```
+
+**v1 缺口.** Candidates are similarity-only and the direction table cannot say
+much while most notes have no `type`; queue merging never deletes stale rows,
+and nothing yet re-checks a link after the target note is edited.

@@ -15,7 +15,10 @@ import { createKbDoctorTool } from './tools/kb-doctor.tool.js';
 import { createKbEmbedTool } from './tools/kb-embed.tool.js';
 import { createKbCompileTool } from './tools/kb-compile.tool.js';
 import { createKbIngestTool } from './tools/kb-ingest.tool.js';
+import { createKbIndexTool } from './tools/kb-index.tool.js';
 import { createKbInventoryTool } from './tools/kb-inventory.tool.js';
+import { createKbLinkApplyTool } from './tools/kb-link-apply.tool.js';
+import { createKbLinkReviewTool } from './tools/kb-link-review.tool.js';
 import { createKbLintTool } from './tools/kb-lint.tool.js';
 import { createKbPromoteTool } from './tools/kb-promote.tool.js';
 import { createKbQueryTool } from './tools/kb-query.tool.js';
@@ -263,6 +266,9 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     registerTool(ctx, createKbCompileTool({ resolveRoot, allowWrites: () => allowWrites }));
     registerTool(ctx, createKbPromoteTool({ resolveRoot, allowWrites: () => allowWrites, promoteDir: () => config.promoteDir }));
     registerTool(ctx, createKbSuggestLinksTool({ resolveRoot }));
+    registerTool(ctx, createKbIndexTool({ allowWrites: () => allowWrites, resolveRoot }));
+    registerTool(ctx, createKbLinkReviewTool({ allowWrites: () => allowWrites, resolveRoot }));
+    registerTool(ctx, createKbLinkApplyTool({ allowWrites: () => allowWrites, resolveRoot }));
     registerTool(
       ctx,
       createKbIngestTool({
@@ -302,5 +308,5 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     logBoot(workspaceRoot, 'apply-failed', error instanceof Error ? error.message : String(error));
     throw error;
   }
-  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_compile kb_promote kb_suggest_links kb_ingest kb_query kb_embed');
+  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_compile kb_promote kb_suggest_links kb_index kb_link_review kb_link_apply kb_ingest kb_query kb_embed');
 }

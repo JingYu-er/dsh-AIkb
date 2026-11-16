@@ -13,7 +13,7 @@ export interface KbLintDeps {
 }
 
 const LINE_FEED = String.fromCharCode(10);
-const RULE_ORDER = ['link.broken', 'title.duplicate', 'concept.orphan', 'frontmatter.missing', 'frontmatter.type'];
+const RULE_ORDER = ['link.broken', 'link-missing-why', 'link-wrong-direction', 'link-flood', 'orphan', 'title.duplicate', 'concept.orphan', 'frontmatter.missing', 'frontmatter.type'];
 
 const OUTPUT_SCHEMA: SchemaNode = {
   type: 'object',

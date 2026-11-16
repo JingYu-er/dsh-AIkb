@@ -9,7 +9,7 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path and the compile loop are implemented and tested (87 unit tests):
+MVP read path and the compile loop are implemented and tested (126 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
@@ -22,10 +22,14 @@ MVP read path and the compile loop are implemented and tested (87 unit tests):
 | `kb_compile` | Compile inbox drafts: resolve title/type, lift `sources:` and wikilinks, normalise H1 and blank lines; writes `inbox/_compiled/`, idempotent via `compiledHash`. |
 | `kb_promote` | Promote compiled drafts into the configured `promoteDir` with a line diff; confirm-gated, never overwrites without `force`. |
 | `kb_suggest_links` | Read-only link candidates between notes that share rare terms, with a reason and a confidence. |
+| `kb_index` | Deterministic vault catalog: scan notes and wikilinks, then render `index.md` by type with per-type counts, recent changes, orphans, untyped notes and broken links. `write:true` rebuilds it and appends one `log.md` line. |
+| `kb_link_review` | Turn similarity suggestions into SCHEMA-checked link candidates (direction, no duplicate, max 8, confidence ≥ 0.25) and write review queues under `inbox/links/`; never edits formal notes. |
+| `kb_link_apply` | Apply queue rows whose `why` was filled in: show a diff, then append `- [[target]] — why` to `## 关联`, back up to `.wiki/backups/` and mark the row `[x]`. Confirm-gated. |
 
 Writes are off by default and, when enabled, are confined to `inbox/`, `.wiki/`,
-and the `promoteDir` you configure for `kb_promote`. Nothing else in the vault is
-modified.
+the generated `index.md`/`log.md`, and the `promoteDir` you configure for
+`kb_promote` plus the notes `kb_link_apply` edits after a diff. Nothing else in
+the vault is modified; `.obsidian/` is never touched.
 
 ## Requirements
 
@@ -110,6 +114,9 @@ kb_lint                                    # broken links / orphans / frontmatte
 kb_compile  { dryRun: true }               # preview inbox drafts -> inbox/_compiled/
 kb_promote  { limit: 3 }                   # diff preview; add confirm:true to write
 kb_suggest_links { note: "学习/硬件/笔记/结电容.md" }   # candidate [[links]] (read-only)
+kb_index    { write: true }                # rebuild index.md + log.md
+kb_link_review { write: true }             # queues in inbox/links/ (why empty = unapproved)
+kb_link_apply  { confirm: true }           # apply rows with a why, diff first
 ```
 
 ## Agent skill

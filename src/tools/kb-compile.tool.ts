@@ -1,5 +1,7 @@
 import { NodeInboxFs } from '../adapters/fs/inbox-fs.js';
 import { runCompile } from '../application/kb-compile.js';
+import { appendLog } from '../application/kb-log.js';
+import { NodeNotesFs } from '../adapters/fs/notes-fs.js';
 import type { CompileReport } from '../application/kb-compile.js';
 import { defineTool } from './definition.js';
 import type { SchemaNode } from './definition.js';
@@ -130,13 +132,22 @@ export function createKbCompileTool(deps: KbCompileDeps) {
         if (args.dryRun !== true && !deps.allowWrites()) {
           return failedReport(root, Object.assign(new Error('writes are disabled for this vault'), { code: 'kb.writes-disabled' }));
         }
-        return await runCompile(new NodeInboxFs(root), root, {
+        const report = await runCompile(new NodeInboxFs(root), root, {
           ...(args.paths === undefined ? {} : { paths: args.paths }),
           ...(args.limit === undefined ? {} : { limit: args.limit }),
           ...(args.inPlace === true ? { inPlace: true } : {}),
           ...(args.force === true ? { force: true } : {}),
           ...(args.dryRun === true ? { dryRun: true } : {}),
         });
+        // The log is bookkeeping: a failed append must not undo a successful compile.
+        if (report.dryRun !== true && report.totals.compiled > 0) {
+          try {
+            await appendLog(new NodeNotesFs(root), 'compile', 'inbox/_compiled', report.totals.compiled + ' draft(s) compiled');
+          } catch (error) {
+            console.warn('[dsh-kb] log append failed: ' + (error instanceof Error ? error.message : String(error)));
+          }
+        }
+        return report;
       } catch (error) {
         return failedReport(root, error);
       }

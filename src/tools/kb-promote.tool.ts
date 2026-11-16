@@ -1,5 +1,7 @@
 import { NodePromoteFs } from '../adapters/fs/promote-fs.js';
 import { runPromote } from '../application/kb-promote.js';
+import { appendLog } from '../application/kb-log.js';
+import { NodeNotesFs } from '../adapters/fs/notes-fs.js';
 import type { PromoteReport } from '../application/kb-promote.js';
 import { defineTool } from './definition.js';
 import type { SchemaNode } from './definition.js';
@@ -140,13 +142,23 @@ export function createKbPromoteTool(deps: KbPromoteDeps) {
         if (args.confirm === true && !deps.allowWrites()) {
           return failedReport(root, dir, Object.assign(new Error('writes are disabled for this vault'), { code: 'kb.writes-disabled' }));
         }
-        return await runPromote(new NodePromoteFs(root, configured), root, configured, {
+        const report = await runPromote(new NodePromoteFs(root, configured), root, configured, {
           ...(args.source === undefined ? {} : { source: args.source }),
           ...(args.target === undefined ? {} : { target: args.target }),
           ...(args.confirm === true ? { confirm: true } : {}),
           ...(args.force === true ? { force: true } : {}),
           ...(args.limit === undefined ? {} : { limit: args.limit }),
         });
+        // Only a confirmed write is worth a log line; a failed append must not undo the promote.
+        const changed = report.totals.created + report.totals.updated;
+        if (args.confirm === true && changed > 0) {
+          try {
+            await appendLog(new NodeNotesFs(root), 'promote', configured, changed + ' note(s) promoted (' + report.totals.created + ' new, ' + report.totals.updated + ' updated)');
+          } catch (error) {
+            console.warn('[dsh-kb] log append failed: ' + (error instanceof Error ? error.message : String(error)));
+          }
+        }
+        return report;
       } catch (error) {
         return failedReport(root, dir, error);
       }

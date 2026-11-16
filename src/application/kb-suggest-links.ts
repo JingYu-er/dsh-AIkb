@@ -104,7 +104,7 @@ interface Doc {
   readonly norm: number;
 }
 
-export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { note?: string; limit?: number; minScore?: number } = {}): Promise<SuggestReport> {
+export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { note?: string; limit?: number; minScore?: number; perNote?: number } = {}): Promise<SuggestReport> {
   const started = Date.now();
   const entries = (await fs.listFiles()).filter(
     (entry) =>
@@ -162,7 +162,7 @@ export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { 
   });
   const minScore = options.minScore ?? 0.2;
   const only = options.note === undefined ? undefined : docs.findIndex((doc) => doc.path === options.note || doc.name.toLowerCase() === (options.note ?? '').toLowerCase());
-  const perNote = 2;
+  const perNote = Math.max(1, options.perNote ?? 2);
   const picked: LinkSuggestion[] = [];
   docs.forEach((doc, index) => {
     if (only !== undefined && only >= 0 && index !== only) return;

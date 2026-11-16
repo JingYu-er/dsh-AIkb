@@ -1,5 +1,8 @@
 /** Read-only checks over the markdown notes of a vault. */
 
+import type { SchemaNoteType } from '../domain/kb-schema.js';
+import { isSpecialNote, normaliseSchemaType } from '../domain/kb-schema.js';
+
 export interface LintEntry {
   readonly relPath: string;
 }
@@ -35,9 +38,21 @@ const ATTACHMENT = /\.(png|jpe?g|gif|webp|svg|pdf|mp4|canvas|excalidraw|base)$/i
 const SKIP_PREFIX = /^(copilot|\.agents|\.claude|\.wiki)\//i;
 /** Compiled drafts in inbox are machine copies; their source draft is the note to lint. */
 const COMPILED_PREFIX = /^inbox\/_compiled\//i;
-const FENCED = /```[\s\S]*?```|~~~[\s\S]*?~~~/g;
+/** Template folders hold Templater placeholders, not real notes. */
+const TEMPLATE_PREFIX = /(^|\/)(ZtTemplates|Templater|Templates)\//i;
+/** Generated artifacts and drawing sidecars are not notes. */
+const GENERATED = /^(index|log)\.md$/i;
+const DRAWING = /\.excalidraw\.md$/i;
+/** Link queues are review scaffolding, not notes. */
+const QUEUE_PREFIX = /^inbox\/links\//i;
+const FENCED = /~~~[\s\S]*?~~~|```[\s\S]*?```/g;
+const ASSOCIATION = /^##[ \t]+关联[ \t]*$/m;
+const NEXT_HEADING = /^#{1,2}[ \t]+/m;
+const ASSOCIATION_ITEM = /^\s*[-*]\s+.*\[\[/;
+const HAS_WHY = /—\s*\S/;
 
 const MAX_PER_RULE = 50;
+const MAX_OUTLINKS = 30;
 
 function basenameOf(relPath: string): string {
   const file = relPath.split('/').pop() ?? relPath;
@@ -68,11 +83,23 @@ function linksOf(text: string): string[] {
   for (const match of text.replace(FENCED, '').matchAll(LINK)) {
     const raw = match[1];
     if (raw === undefined) continue;
-    const target = raw.replace(/^\.\//, '').split('/').pop() ?? raw;
+    const target = (raw.replace(/^\.\//, '').split('/').pop() ?? raw).replace(/\.md$/i, '');
     if (ATTACHMENT.test(target)) continue;
     out.push(normalise(target));
   }
   return out;
+}
+
+/** The '## 关联' section body, or '' when the note has none. */
+function associationSection(text: string): string {
+  const normalised = text.replace(/\r\n/g, '\n');
+  const match = ASSOCIATION.exec(normalised);
+  if (match === null) return '';
+  const start = (match.index ?? 0) + match[0].length;
+  const rest = normalised.slice(start);
+  const next = NEXT_HEADING.exec(rest);
+  const end = next === null ? normalised.length : start + (next.index ?? 0);
+  return normalised.slice(start, end);
 }
 
 function pushFinding(findings: LintFinding[], counted: Record<string, number>, finding: LintFinding): void {
@@ -80,10 +107,24 @@ function pushFinding(findings: LintFinding[], counted: Record<string, number>, f
   if ((counted[finding.rule] ?? 0) <= MAX_PER_RULE) findings.push(finding);
 }
 
+interface NoteRecord {
+  readonly path: string;
+  readonly text: string;
+  readonly type: SchemaNoteType;
+  readonly links: readonly string[];
+}
+
 export async function runLint(fs: LintFs, vaultRoot: string): Promise<LintReport> {
   const started = Date.now();
   const notes = (await fs.listFiles()).filter(
-    (entry) => /\.md$/i.test(entry.relPath) && !SKIP_PREFIX.test(entry.relPath) && !COMPILED_PREFIX.test(entry.relPath),
+    (entry) =>
+      /\.md$/i.test(entry.relPath) &&
+      !SKIP_PREFIX.test(entry.relPath) &&
+      !COMPILED_PREFIX.test(entry.relPath) &&
+      !QUEUE_PREFIX.test(entry.relPath) &&
+      !TEMPLATE_PREFIX.test(entry.relPath) &&
+      !GENERATED.test(entry.relPath) &&
+      !DRAWING.test(entry.relPath),
   );
   const byName = new Map<string, string[]>();
   for (const note of notes) {
@@ -94,8 +135,9 @@ export async function runLint(fs: LintFs, vaultRoot: string): Promise<LintReport
   }
   const findings: LintFinding[] = [];
   const counts: Record<string, number> = { notes: notes.length };
-  const inbound = new Map<string, number>();
-  const concept: string[] = [];
+  const inboundByName = new Map<string, number>();
+  const inboundByPath = new Map<string, number>();
+  const records: NoteRecord[] = [];
   for (const note of notes) {
     let text = '';
     try {
@@ -104,30 +146,71 @@ export async function runLint(fs: LintFs, vaultRoot: string): Promise<LintReport
       continue;
     }
     const fields = frontmatterOf(text);
-    const type = (fields?.type ?? fields?.['\u7c7b\u578b'] ?? '').toLowerCase();
+    const rawType = fields?.type ?? fields?.['\u7c7b\u578b'] ?? '';
+    const type = normaliseSchemaType(rawType);
     if (fields === undefined) {
       pushFinding(findings, counts, { rule: 'frontmatter.missing', severity: 'info', path: note.relPath, detail: 'no YAML frontmatter block' });
-    } else if ((fields.type ?? fields['\u7c7b\u578b'] ?? '') === '') {
+    } else if (rawType === '') {
       pushFinding(findings, counts, { rule: 'frontmatter.type', severity: 'info', path: note.relPath, detail: 'frontmatter has no type field' });
     }
-    if (type === 'concept' || type === '\u6982\u5ff5') concept.push(note.relPath);
-    for (const target of linksOf(text)) {
-      inbound.set(target, (inbound.get(target) ?? 0) + 1);
-      if (!byName.has(target)) {
+    const links = linksOf(text);
+    records.push({ path: note.relPath, text, type, links });
+    for (const target of links) {
+      inboundByName.set(target, (inboundByName.get(target) ?? 0) + 1);
+      const hit = byName.get(target);
+      if (hit === undefined) {
         pushFinding(findings, counts, { rule: 'link.broken', severity: 'warn', path: note.relPath, detail: 'no note named "' + target + '"' });
+        continue;
       }
+      for (const path of hit) inboundByPath.set(path, (inboundByPath.get(path) ?? 0) + 1);
     }
   }
+  const typeByPath = new Map(records.map((record) => [record.path, record.type]));
+
   for (const [name, paths] of byName) {
     if (paths.length < 2) continue;
     for (const path of paths.slice(1)) {
       pushFinding(findings, counts, { rule: 'title.duplicate', severity: 'warn', path, detail: 'another note is also named "' + name + '"' });
     }
   }
-  for (const path of concept) {
-    const name = normalise(basenameOf(path));
-    if ((inbound.get(name) ?? 0) > 0) continue;
-    pushFinding(findings, counts, { rule: 'concept.orphan', severity: 'warn', path, detail: 'concept page has no inbound wikilink' });
+  for (const record of records) {
+    if (record.type !== 'concept') continue;
+    if ((inboundByName.get(normalise(basenameOf(record.path))) ?? 0) > 0) continue;
+    pushFinding(findings, counts, { rule: 'concept.orphan', severity: 'warn', path: record.path, detail: 'concept page has no inbound wikilink' });
+  }
+
+  // Link discipline (SCHEMA): every link carries a reason and points in the allowed direction.
+  for (const record of records) {
+    if (record.links.length > MAX_OUTLINKS) {
+      pushFinding(findings, counts, { rule: 'link-flood', severity: 'warn', path: record.path, detail: 'outlinks=' + record.links.length + ' (>' + MAX_OUTLINKS + ')' });
+    }
+    for (const line of associationSection(record.text).split('\n')) {
+      if (!ASSOCIATION_ITEM.test(line)) continue;
+      if (HAS_WHY.test(line)) continue;
+      const link = /\[\[([^\]|#]+)/.exec(line);
+      pushFinding(findings, counts, {
+        rule: 'link-missing-why',
+        severity: 'warn',
+        path: record.path,
+        detail: '关联条目缺少 why：[[ ' + (link?.[1] ?? line.trim()) + ' ]]',
+      });
+    }
+    const seen = new Set<string>();
+    for (const target of record.links) {
+      if (seen.has(target)) continue;
+      seen.add(target);
+      const toTypes = (byName.get(target) ?? []).map((path) => typeByPath.get(path) ?? 'unknown');
+      for (const toType of toTypes) {
+        if (record.type === 'source' && toType === 'source') {
+          pushFinding(findings, counts, { rule: 'link-wrong-direction', severity: 'warn', path: record.path, detail: 'source→source 不允许：[[ ' + target + ' ]]' });
+        } else if (record.type === 'thought' && toType === 'thought') {
+          pushFinding(findings, counts, { rule: 'link-wrong-direction', severity: 'warn', path: record.path, detail: 'thought→thought 需说明判断关系：[[ ' + target + ' ]]' });
+        }
+      }
+    }
+    if (!isSpecialNote(record.path) && record.type !== 'moc' && !/^inbox\//i.test(record.path) && (inboundByPath.get(record.path) ?? 0) === 0) {
+      pushFinding(findings, counts, { rule: 'orphan', severity: 'warn', path: record.path, detail: 'note has no inbound wikilink' });
+    }
   }
   return { ok: true, vaultRoot, notes: notes.length, findings, counts, elapsedMs: Date.now() - started };
 }
