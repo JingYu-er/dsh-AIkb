@@ -37,6 +37,12 @@ export interface QueryOptions {
    * a semantically close but page-imprecise vector hit.
    */
   readonly vectorShare?: number;
+  /**
+   * Weight of the vector score in a score-level blend with BM25 (0 = vectors only fill the tail).
+   * Both lists are normalised by their best hit before mixing, so this is a real hybrid ranking,
+   * not RRF (which was measured and rejected) and not both scores added raw.
+   */
+  readonly hybridWeight?: number;
   /** Term pairs harvested from this vault books ('.wiki/index/glossary.json'). */
   readonly glossary?: readonly GlossaryEntry[];
   /** Return the whole page or section containing each hit; off by default to keep tokens low. */
@@ -648,10 +654,26 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     vectorHits = topVectorHits(vectors, queryVector, 64);
     if (vectorHits.length > 0) vectorCount = Math.min(vectors.ids.length, Math.floor(vectors.data.length / vectors.dims));
   }
+  // Score-level hybrid: normalise both lists by their best hit and mix. RRF failed here because the
+  // rank gaps are tiny (1/61 vs 1/62), which let a mediocre-on-both page beat the best lexical one.
+  const hybridWeight = Math.max(0, Math.min(1, options.hybridWeight ?? 0));
+  let hybridOrder: { id: string; score: number }[] | undefined;
+  if (hybridWeight > 0 && vectorHits.length > 0) {
+    const bm25Max = ranked[0]?.score ?? 0;
+    const cosMax = Math.max(0, ...vectorHits.map((hit) => hit.cosine));
+    const bm25 = new Map(ranked.map((hit) => [hit.id, bm25Max > 0 ? hit.score / bm25Max : 0]));
+    const cos = new Map(vectorHits.map((hit) => [hit.id, cosMax > 0 ? hit.cosine / cosMax : 0]));
+    const ids = new Set<string>([...bm25.keys(), ...cos.keys()]);
+    hybridOrder = [...ids]
+      .map((id) => ({ id, score: (1 - hybridWeight) * (bm25.get(id) ?? 0) + hybridWeight * (cos.get(id) ?? 0) }))
+      .sort((left, right) => right.score - left.score)
+      .slice(0, searchPool);
+  }
+
   // Never take more than the last few slots: the top 5 stay lexical, because BM25 pages are exactly
   // right while vector pages drift by a section. Below topK=6 there is no room for a vector slot.
   const shared = Math.max(0, Math.min(Math.floor(topK * (options.vectorShare ?? 0.25)), topK - 5));
-  const vectorQuota = vectorHits.length === 0 ? 0 : shared;
+  const vectorQuota = vectorHits.length === 0 || hybridOrder !== undefined ? 0 : shared;
   const lexicalQuota = topK - vectorQuota;
 
   // Near-duplicate manuals (STM32F1 vs STM32C0, MSP430 family guides) and different editions of
@@ -680,7 +702,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
   if (rerank !== undefined) {
     const pool = options.rerankPool ?? DEFAULT_RERANK_POOL;
     const candidates: string[] = [];
-    for (const hit of (fused ?? ranked).slice(0, pool)) {
+    for (const hit of (fused ?? hybridOrder ?? ranked).slice(0, pool)) {
       if (snapshot.byId.has(hit.id) && !candidates.includes(hit.id)) candidates.push(hit.id);
     }
     // Vector hits stay out of the rerank pool on purpose: the cross-encoder already judges the
@@ -691,7 +713,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     const blend = Math.max(0, Math.min(1, options.rerankBlend ?? DEFAULT_RERANK_BLEND));
     if (scores !== undefined && scores.length === candidates.length) {
       const lexical = new Map<string, number>();
-      for (const hit of (fused ?? ranked).slice(0, pool)) lexical.set(hit.id, hit.score);
+      for (const hit of (fused ?? hybridOrder ?? ranked).slice(0, pool)) lexical.set(hit.id, hit.score);
       let bestLexical = 0;
       for (const value of lexical.values()) bestLexical = Math.max(bestLexical, value);
       order = candidates
@@ -715,6 +737,13 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     // Fusion replaces the vector tail: every candidate here already came from a full question.
     const best = fused[0]?.score ?? 0;
     for (const hit of fused) {
+      if (selected.length >= topK) break;
+      take(hit.id, best > 0 ? hit.score / best : 0);
+    }
+  } else if (hybridOrder !== undefined) {
+    // The blend already mixes both scores, so the vector tail is not used at all.
+    const best = hybridOrder[0]?.score ?? 0;
+    for (const hit of hybridOrder) {
       if (selected.length >= topK) break;
       take(hit.id, best > 0 ? hit.score / best : 0);
     }

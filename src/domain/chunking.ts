@@ -21,7 +21,12 @@ export interface ChunkDraft {
   readonly section: string | undefined;
   readonly text: string;
   readonly tokens: number;
+  /** 'table' and 'formula' blocks are extracted separately and never merged into running text. */
+  readonly kind?: 'table' | 'formula';
 }
+
+const TABLE_MARK = '\u27e6TABLE\u27e7';
+const FORMULA_MARK = '\u27e6FORMULA\u27e7';
 
 export interface ChunkOptions {
   readonly maxTokens: number;
@@ -107,6 +112,23 @@ export function chunkPages(sourceId: string, pages: readonly PageText[], toc: re
       index += 1;
     };
     for (const raw of page.blocks) {
+      const trimmed = raw.trim();
+      const marked: 'table' | 'formula' | undefined = trimmed.startsWith(TABLE_MARK)
+        ? 'table'
+        : trimmed.startsWith(FORMULA_MARK) ? 'formula' : undefined;
+      if (marked !== undefined) {
+        // A table or formula stays one unit: merging rows into prose destroys the column order
+        // that makes a datasheet row searchable.
+        flush();
+        const body = trimmed.slice(marked === 'table' ? TABLE_MARK.length : FORMULA_MARK.length).trim();
+        for (const piece of splitLongBlock(body, options.maxTokens)) {
+          const text = piece.trim();
+          if (text.length < 8) continue;
+          drafts.push({ id: sourceId + ':' + page.page + ':' + index, sourceId, page: page.page, section, text, tokens: approxTokens(text), kind: marked });
+          index += 1;
+        }
+        continue;
+      }
       for (const piece of splitLongBlock(raw.trim(), options.maxTokens)) {
         if (piece.trim() === '') continue;
         if (buffer !== '' && approxTokens(buffer + piece) > options.maxTokens) flush();

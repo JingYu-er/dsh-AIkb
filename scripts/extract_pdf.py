@@ -22,6 +22,47 @@ def is_cjk(char: str) -> bool:
     return 0x3400 <= code <= 0x9FFF
 
 
+TABLE_MARK = "\u27e6TABLE\u27e7"
+FORMULA_MARK = "\u27e6FORMULA\u27e7"
+MATH_CHARS = set("∫∑√≤≥±×÷∂∆πΩμθλω→∞∈∉⊂⊃∪∩∅")
+
+
+def table_blocks(page) -> list[str]:
+    """Rows of a real table become one marked block so the chunker can keep it whole."""
+    out: list[str] = []
+    try:
+        finder = page.find_tables()
+    except Exception:
+        return out
+    for table in finder.tables:
+        try:
+            rows = table.extract()
+        except Exception:
+            continue
+        lines = []
+        for row in rows:
+            cells = [join_block(str(cell)) if cell else "" for cell in row]
+            if any(cells):
+                lines.append(" | ".join(cells))
+        text = "\n".join(lines).strip()
+        if len(text) >= 24:
+            out.append(TABLE_MARK + text)
+    return out
+
+
+def formula_blocks(page) -> list[str]:
+    """Formula-looking lines are kept separate; no LaTeX reconstruction, only a clean searchable line."""
+    out: list[str] = []
+    for line in page.get_text("text").split("\n"):
+        line = line.strip()
+        if len(line) < 4 or len(line) > 160:
+            continue
+        math = sum(1 for char in line if char in MATH_CHARS)
+        if math >= 2 and math / len(line) >= 0.08:
+            out.append(FORMULA_MARK + line)
+    return out
+
+
 def main() -> int:
     if len(sys.argv) < 2:
         print("usage: extract_pdf.py <pdf> [maxPages]", file=sys.stderr)
@@ -45,6 +86,8 @@ def main() -> int:
             if block[3] > rect.height * 0.94 and text.isdigit():
                 continue
             blocks.append(text)
+        blocks.extend(table_blocks(page))
+        blocks.extend(formula_blocks(page))
         pages.append({"page": index + 1, "width": rect.width, "height": rect.height, "blocks": blocks})
     text_chars = sum(len(block) for page in pages for block in page["blocks"])
     json.dump(
