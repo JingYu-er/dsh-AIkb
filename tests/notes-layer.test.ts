@@ -56,3 +56,41 @@ test('limit bounds the number of notes', async () => {
   const hits = await searchNotes(fs, '滤波器', 2);
   assert.equal(hits.length, 2);
 });
+
+test('field weighting ranks a title match above a heading match', async () => {
+  clearNotesCache();
+  const fs = vault({
+    '学习/滤波器.md': '---\ntitle: 滤波器\n---\n\n## 笔记\n\n这里讲滤波器。\n',
+    '随记/别的.md': '# 滤波器\n\n这里讲滤波器。\n',
+  });
+  const weighted = await searchNotes(fs, '滤波器', 5);
+  assert.equal(weighted[0]?.path, '学习/滤波器.md');
+  // The legacy flat index only sees body text, where the heading copy wins on term frequency.
+  const flat = await searchNotes(fs, '滤波器', 5, { fieldWeight: false });
+  assert.equal(flat[0]?.path, '随记/别的.md');
+});
+
+test('a frontmatter-only note is findable when fields are weighted', async () => {
+  clearNotesCache();
+  const fs = vault({
+    '砖块/Templater-笔记属性.md': '---\ntitle: Templater 笔记属性\ntags: [templater, frontmatter]\n---\n',
+    '学习/别的.md': '# 别的\n\n今天吃了面。\n',
+  });
+  const weighted = await searchNotes(fs, 'Templater 属性', 5);
+  assert.equal(weighted[0]?.path, '砖块/Templater-笔记属性.md');
+  const flat = await searchNotes(fs, 'Templater 属性', 5, { fieldWeight: false });
+  assert.equal(flat.length, 0);
+});
+
+test('the hub penalty demotes a sprawling note without excluding it', async () => {
+  clearNotesCache();
+  // One 24k-character section: its best chunk is short and stuffed with the query term, so it wins
+  // lexically; only the hub multiplier can demote it below a tight, focused note.
+  const filler = '无关词汇填充内容'.repeat(3000);
+  const big = '---\ntitle: 大杂烩\n---\n\n' + '滤波器 '.repeat(150) + filler + '\n';
+  const fs = vault({ '大杂烩.md': big, '学习/选频.md': '# 原理\n\n滤波器 就是选频。\n' });
+  assert.equal((await searchNotes(fs, '滤波器', 5, { hubPenalty: 0 }))[0]?.path, '大杂烩.md');
+  const penalised = await searchNotes(fs, '滤波器', 5, { hubPenalty: 0.5 });
+  assert.equal(penalised[0]?.path, '学习/选频.md');
+  assert.ok(penalised.some((hit) => hit.path === '大杂烩.md'));
+});

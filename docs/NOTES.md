@@ -10,6 +10,94 @@ the decision, and how to reproduce. Benchmarks come from `bench/run.mjs`
 
 ---
 
+## 2026-11-16 — notes retrieval quality: field weighting, hub penalty, vectors, rerank
+
+**Problem.** The query-time notes layer (`a680f0e`) put the right note in the top five for 9 of 11
+`bench/questions-notes.jsonl` questions (MRR 0.35), but the two misses were systematic: "Obsidian
+命令行工具…" landed on `TypeScript.md`, "Templater 的笔记属性模板…" on the 54 KB root note. Both
+target notes carry their value in the title/frontmatter and a short body, and both were outranked by
+notes that merely repeat the query terms. Flat BM25 over ~600-character blocks cannot tell a title
+from a paragraph, and a sprawling note wins on term frequency alone.
+
+**Changes.** Four switches, all inside the notes layer; every one is visible in `kb_query`'s schema,
+its rendered header and its JSON `notes` object (`notesWeight`, `notesHubPenalty`, `notesEmbed`,
+`notesRerank`, `notesRerankBlend`; bench: `--notes-weight`/`--no-notes-weight`, `--notes-hub`,
+`--notes-embed`, `--notes-rerank`).
+
+1. **Field-weighted BM25** (`notesWeight`, default on). Each block is scored as three fields — title
+   (filename plus frontmatter `title`/`标题`/`aliases`/`tags`/`name`) ×3, ATX heading ×2, body ×1 —
+   by summing the weighted term frequencies into one BM25 formula whose length normalisation uses the
+   same weighted length. A literal title-token hit multiplies the block score by 1.1. No token
+   repetition, so a long note is not inflated. Frontmatter-only notes (e.g. `Templater-笔记属性.md`)
+   now get a placeholder block and become findable; before, they were dropped for having no body.
+2. **Hub penalty** (`notesHubPenalty`, default 0.5; `0` disables). A note with more than 20,000 body
+   characters or more than 40 wikilinks has its block score multiplied by 0.5 after BM25. Demoted,
+   never excluded: a big note can still win on a genuinely specific match.
+3. **Note vectors** (`notesEmbed`, default off). `src/application/notes-vectors.ts` embeds the 2,996
+   note blocks with the provisioned multilingual-e5-small through the existing `embedChunkFiles` job
+   adapter and caches `.wiki/index/notes-vectors.{json,vec}` (4.4 MB) under a corpus hash; a note edit
+   changes the hash and rebuilds. The dense signal reorders the lexical candidates as
+   `0.6 × BM25/best + 0.4 × cosine`.
+4. **Rerank** (`notesRerank`, default off). The top 20 note candidates go through the existing
+   `rerankPassages` (bge-reranker-base) with the same blend shape as the book path (`0.3` lexical by
+   default).
+
+**Numbers.** `node bench/run.mjs --set notes` (11 questions). `ms` is `runQuery` elapsed after the
+first query: the first query pays ~6 s of note-index build, and `--notes-embed` pays another ~30 s
+once to build the matrix. The bench-side query embedding (~2.0 s per query, a fresh Python process)
+is **not** in that column; the tool pays it inside `kb_query`.
+
+| configuration | hit@5 | MRR | ms/query |
+| --- | --- | --- | --- |
+| books only (notes layer off) | 0/11 | 0 | — |
+| flat notes, control (HEAD) | 9/11 | 0.355 | 72 |
+| field weighting only | 9/11 | 0.364 | 68 |
+| hub penalty only | 9/11 | 0.355 | 89 |
+| field + hub (new default) | 9/11 | 0.364 | 72 |
+| vectors only | 9/11 | 0.355 | 92 |
+| field + hub + vectors | 10/11 | 0.382 | 127 |
+| rerank only | 9/11 | 0.386 | 1256 |
+| field + hub + rerank | 10/11 | 0.367 | 1153 |
+| field + hub + vectors + rerank | 10/11 | 0.409 | 907 |
+| field + hub + vectors, limit 8 | 10/11 | 0.382 | 81 |
+
+**Decision.** Field weighting and the hub penalty are the new defaults: no extra process, +0.01 MRR,
+and they fix the Templater question. Be honest about the trade: pure field weighting also pushes the
+康华光 差模 question out of the top five (rank 4 → outside), which the vector layer puts back at rank 4
+— that is why the two cheap defaults score 9/11 while field + vectors scores 10/11. The hub limb
+changes nothing measurable on this vault (only 3 notes exceed 20k characters and no note exceeds 40
+wikilinks) but it is the guard for the 54 KB root note, so it stays at 0.5.
+
+Vectors and rerank stay **off by default**, and by the stated bar they are **not worth it**: +1
+question and +0.03–0.05 MRR for ~1–2 s per query, nowhere near the 0.35 → 0.5+ that would justify
+turning them on for every page query. The best measured combination (field + hub + vectors + rerank,
+10/11, MRR 0.41, ~3.1 s added) is kept as an opt-in for callers that can afford it.
+
+**The two misses.** Templater is fixed (the frontmatter-only note now ranks 3rd). The Obsidian CLI
+question is still a miss in every configuration, and the diagnosis is worth keeping: the target
+`copilot/skills/obsidian-cli/SKILL.md` has an English body and a frontmatter `name: obsidian-cli`,
+and the Chinese question shares exactly one token (`obsidian`) with it. It never enters the lexical
+top 20 — so it is not even a rerank candidate — and a full-corpus cosine puts it at rank 191 (0.849
+against 0.90 for `Obsidian文档.md`). The lever is cross-lingual query expansion (命令行 → command
+line) or a stronger embedder, not more ranking on the same candidates.
+
+**Control.** With `notesWeight: false, notesHubPenalty: 0` the notes layer reproduces HEAD's hit list
+byte for byte (path, page, section, score, excerpt; compared by dumping `runQuery` output from a
+worktree at HEAD). The only new output is the `notes` summary object in `kb_query`'s report, which
+says which switches were active. Books are unchanged: `--set zh` page@5 11/26, MRR 0.18; `--set zh2`
+page@5 9/12, MRR 0.57.
+
+**Reproduce.**
+```bash
+node bench/run.mjs --set notes --notes-layer --no-notes-weight --notes-hub 0   # flat control
+node bench/run.mjs --set notes --notes-layer                                   # defaults: field + hub
+node bench/run.mjs --set notes --notes-layer --notes-embed                     # + vectors (builds cache once)
+node bench/run.mjs --set notes --notes-layer --notes-embed --notes-rerank       # best measured
+node bench/run.mjs --set zh ; node bench/run.mjs --set zh2                      # books must not move
+```
+
+---
+
 ## 2026-11-16 — vault notes in retrieval: ingest vs a query-time layer
 
 **Problem.** `kb_query` only searched the 181 indexed PDFs (27,073 chunks). The

@@ -30,6 +30,11 @@ const hybridWeight = Number(value('hybrid-weight', '0')) || undefined;
 const topK = Number(value('topk', '8'));
 const useNotesLayer = flag('notes-layer');
 const notesLimit = Number(value('notes-limit', '5')) || 5;
+/** Field weighting is on by default; --no-notes-weight is the control run for the old flat BM25. */
+const notesWeight = flag('no-notes-weight') ? false : (flag('notes-weight') ? true : undefined);
+const notesHub = value('notes-hub', '') === '' ? undefined : Number(value('notes-hub', ''));
+const useNotesEmbed = flag('notes-embed');
+const useNotesRerank = flag('notes-rerank');
 const outPath = value('json', '');
 const verbose = flag('verbose');
 
@@ -132,7 +137,7 @@ if (mode === 'hybrid') {
   console.log('vectors:', vectors.ids.length, 'chunks,', vectors.dims, 'dims');
 }
 
-const config = { set: setNames, mode, multi: useMulti, rerank: useRerank, expand: useExpand, topK, notesLayer: useNotesLayer, notesLimit };
+const config = { set: setNames, mode, multi: useMulti, rerank: useRerank, expand: useExpand, topK, notesLayer: useNotesLayer, notesLimit, notesWeight, notesHub, notesEmbed: useNotesEmbed, notesRerank: useNotesRerank };
 console.log(JSON.stringify(config));
 
 const report = { config, sets: {} };
@@ -145,10 +150,39 @@ for (const setName of setNames) {
     const items = lines.map((line) => JSON.parse(line));
     const rows = [];
     const detail = [];
+    // The note corpus is small enough to build its matrix on the first run; later runs hit the
+    // cache in .wiki/index/notes-vectors.* unless a note changed.
+    let notesVectors;
+    let notesEmbedQuery;
+    let notesRerankFn;
+    if (useNotesEmbed) {
+      const { ensureNoteVectors, loadNoteVectors } = await import(distFile('application/notes-vectors.js'));
+      notesVectors = loadNoteVectors(ROOT) ?? (await ensureNoteVectors(fs, { pythonPath, workspaceRoot: WORKSPACE, modelDir: embeddingModel }));
+      if (notesVectors === undefined) console.error('bench: note vectors unavailable - staying lexical');
+      ({ embedQuery: notesEmbedQuery } = await import(distFile('adapters/embeddings/embedding.js')));
+    }
+    if (useNotesRerank) {
+      const { rerankPassages } = await import(distFile('adapters/embeddings/rerank.js'));
+      notesRerankFn = async (query, documents) => {
+        const result = await rerankPassages({ pythonPath, workspaceRoot: WORKSPACE, modelDir: join(WORKSPACE, '.kb/models/bge-reranker-base'), query, documents });
+        return result.ok ? result.scores : undefined;
+      };
+    }
     const startedAt = Date.now();
     for (const item of items) {
       const options = {};
-      if (useNotesLayer) { options.notesLayer = true; options.notesLimit = notesLimit; }
+      if (useNotesLayer) {
+        options.notesLayer = true;
+        options.notesLimit = notesLimit;
+        if (notesWeight !== undefined) options.notesWeight = notesWeight;
+        if (notesHub !== undefined && Number.isFinite(notesHub)) options.notesHubPenalty = notesHub;
+        if (notesRerankFn !== undefined) options.notesRerank = (documents) => notesRerankFn(item.q, documents);
+        if (notesVectors !== undefined) {
+          options.notesVectors = notesVectors;
+          const vector = await notesEmbedQuery({ pythonPath, workspaceRoot: WORKSPACE, modelDir: embeddingModel, text: item.q });
+          if (vector !== undefined) options.notesQueryVector = vector;
+        }
+      }
       if (rerankBlend !== undefined) options.rerankBlend = rerankBlend;
       const result = await runQuery(fs, item.q, 5, options);
       const rank = result.hits.findIndex((hit) => hit.path === item.path || hit.path.endsWith('/' + item.path));

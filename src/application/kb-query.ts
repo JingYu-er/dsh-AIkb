@@ -10,6 +10,7 @@ import { chunkQuality } from '../domain/quality.js';
 import { headingFromText } from '../domain/section.js';
 import { tokenize } from '../domain/text.js';
 import { searchNotes } from './notes-layer.js';
+import type { NoteVectors } from './notes-layer.js';
 import { chunkFileOf, INDEX_CATALOG_PATH } from './kb-ingest.js';
 
 export interface QueryFs {
@@ -80,6 +81,16 @@ export interface QueryOptions {
   readonly notesLayer?: boolean;
   /** How many note hits the notes layer contributes (default 5). */
   readonly notesLimit?: number;
+  /** Weight note titles 3x and headings 2x (default true). */
+  readonly notesWeight?: boolean;
+  /** Multiplier for sprawling notes (>20k body chars or >40 wikilinks); 0.5 default, 0 disables. */
+  readonly notesHubPenalty?: number;
+  /** Dense block vectors for the notes corpus; requires notesQueryVector. */
+  readonly notesVectors?: NoteVectors;
+  readonly notesQueryVector?: readonly number[];
+  /** Cross-encoder for the note candidates (supplied by the tool layer). */
+  readonly notesRerank?: (documents: readonly string[]) => Promise<readonly number[] | undefined>;
+  readonly notesRerankBlend?: number;
 }
 
 export interface QueryHit {
@@ -111,6 +122,14 @@ export interface QueryReport {
   readonly reranked?: boolean;
   /** IDF-weighted share of the question's tokens that appear anywhere in the corpus (0..1). */
   readonly coverage?: number;
+  /** Which notes-layer switches produced the merged list (present only when notesLayer is on). */
+  readonly notes?: {
+    readonly hits: number;
+    readonly weight: boolean;
+    readonly hubPenalty: number;
+    readonly embed: boolean;
+    readonly rerank: boolean;
+  };
   readonly elapsedMs: number;
 }
 
@@ -812,7 +831,14 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
   // answer, and appending would bury it below every book page at topK<=5.
   let hits: QueryHit[] = bookHits;
   if (options.notesLayer === true) {
-    const notes = await searchNotes(fs, queryText, options.notesLimit ?? 5);
+    const notes = await searchNotes(fs, queryText, options.notesLimit ?? 5, {
+      ...(options.notesWeight === undefined ? {} : { fieldWeight: options.notesWeight }),
+      ...(options.notesHubPenalty === undefined ? {} : { hubPenalty: options.notesHubPenalty }),
+      ...(options.notesVectors === undefined ? {} : { vectors: options.notesVectors }),
+      ...(options.notesQueryVector === undefined ? {} : { queryVector: options.notesQueryVector }),
+      ...(options.notesRerank === undefined ? {} : { rerank: options.notesRerank }),
+      ...(options.notesRerankBlend === undefined ? {} : { rerankBlend: options.notesRerankBlend }),
+    });
     if (notes.length > 0) {
       const bookMax = Math.max(0, ...bookHits.map((hit) => hit.score));
       const noteMax = notes[0]?.score ?? 0;
@@ -838,11 +864,23 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     }
   }
   const hybrid = vectorCount > 0 && fused === undefined;
+  const noteHits = hits.filter((hit) => hit.kind === 'note').length;
   return {
     ok: true,
     vaultRoot: fs.root,
     query: queryText,
     hits,
+    ...(options.notesLayer === true
+      ? {
+          notes: {
+            hits: noteHits,
+            weight: options.notesWeight !== false,
+            hubPenalty: options.notesHubPenalty ?? 0.5,
+            embed: options.notesVectors !== undefined && options.notesQueryVector !== undefined,
+            rerank: options.notesRerank !== undefined,
+          },
+        }
+      : {}),
     searched: {
       sources: snapshot.sources,
       chunks: snapshot.documents.length,
