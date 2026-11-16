@@ -18,6 +18,8 @@ textarea{flex:1;width:100%;border:0;background:#14161a;color:#dbe3ef;padding:14p
 #search input{width:100%;padding:8px 10px;background:#1b1f26;border:1px solid #333a45;border-radius:8px;color:#fff}
 article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;background:#191d24}
 .meta{font-size:12px;color:#8b96a8}.meta b{color:#9cc7ff}.ex{white-space:pre-wrap;color:#cfd6e2;margin-top:6px}
+#links{flex:none;max-height:30%;overflow:auto;border-top:1px solid #2a2e36;padding:6px 12px;font-size:12px;color:#8b96a8;display:none}
+.grp{margin:3px 0;color:#c3ccda}.lk{padding:2px 0;cursor:pointer;color:#9cc7ff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lk.broken{color:#d98a8a;cursor:default}
 </style>
 <header><b>dsh-kb</b><span class="tab on" id="t-notes">笔记</span><span class="tab" id="t-search">检索</span><span id="status" style="margin-left:auto;color:#7d8798;font-size:12px"></span></header>
 <main>
@@ -25,6 +27,7 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
   <div id="pane">
     <div id="bar"><span id="path">未选择笔记</span><span style="margin-left:auto"></span><button id="save" disabled>保存</button></div>
     <textarea id="editor" spellcheck="false" placeholder="从左侧选一篇笔记…"></textarea>
+    <div id="links"></div>
   </div>
   <div id="search"><input id="q" placeholder="检索书库（回车）"><div id="hits"></div></div>
 </main>
@@ -34,6 +37,7 @@ var byId={
   tree:document.getElementById('tree'), editor:document.getElementById('editor'), path:document.getElementById('path'),
   save:document.getElementById('save'), status:document.getElementById('status'), filter:document.getElementById('filter'),
   q:document.getElementById('q'), hits:document.getElementById('hits'), search:document.getElementById('search'),
+  links:document.getElementById('links'),
   pane:document.getElementById('pane'), tNotes:document.getElementById('t-notes'), tSearch:document.getElementById('t-search')
 };
 function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')}
@@ -81,8 +85,20 @@ async function openNote(p){
   current=p; expandAncestors(p); render();
   var r=await fetch('/api/note?path='+encodeURIComponent(p)); var j=await r.json();
   if(!j.ok){byId.status.textContent='读取失败';return}
-  byId.path.textContent=p; byId.editor.value=j.text; byId.save.disabled=false; byId.status.textContent='';
+  byId.path.textContent=p; byId.editor.value=j.text; byId.save.disabled=false; byId.status.textContent=''; loadLinks(p);
 }
+async function loadLinks(p){
+  var r=await fetch('/api/links?path='+encodeURIComponent(p)); var j=await r.json();
+  if(!j.ok){byId.links.innerHTML='';byId.links.style.display='none';return}
+  var html='';
+  if(j.out.length)html+='<div class="grp">出链 '+j.out.length+'</div>'+j.out.map(function(l){return '<div class="lk'+(l.path?'':' broken')+'" data-p="'+(l.path||'')+'">'+esc(l.raw)+(l.path?'':'（断链）')+'</div>'}).join('');
+  if(j.back.length)html+='<div class="grp">反链 '+j.back.length+'</div>'+j.back.map(function(b){return '<div class="lk" data-p="'+esc(b)+'">'+esc(b)+'</div>'}).join('');
+  byId.links.innerHTML=html||'<div class="grp">这篇笔记没有 wikilink</div>';
+  byId.links.style.display='block';
+}
+document.getElementById('links').addEventListener('click',function(e){
+  var el=e.target.closest('.lk'); if(!el)return; var p=el.getAttribute('data-p'); if(p) openNote(p);
+});
 byId.save.onclick=async function(){
   var r=await fetch('/api/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({path:current,text:byId.editor.value})});
   var j=await r.json(); byId.status.textContent=j.ok?'已保存':'保存失败';

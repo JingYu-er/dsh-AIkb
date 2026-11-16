@@ -70,6 +70,27 @@ const listNotes = (vault, limit = 3000) => {
 };
 
 /** Resolve a vault-relative path and refuse anything that escapes the vault. */
+/** Wikilinks ([[Target]], [[Target|alias]], [[Target#heading]]) in note order. */
+const wikiLinks = (text) => [...text.matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)].map((m) => m[1].trim()).filter((s) => s !== '');
+
+const noteIndex = (notes) => {
+  const byPath = new Set(notes);
+  const byName = new Map();
+  for (const p of notes) {
+    const base = p.split('/').pop().replace(/\.md$/i, '');
+    if (!byName.has(base)) byName.set(base, []);
+    byName.get(base).push(p);
+  }
+  return { byPath, byName };
+};
+
+/** Resolve a wikilink target: full path first, else a note with the same base name. */
+const resolveLink = (index, raw) => {
+  if (index.byPath.has(raw)) return raw;
+  const list = index.byName.get(raw.split('/').pop());
+  return list !== undefined && list.length > 0 ? list[0] : null;
+};
+
 const notePath = (vault, relative) => {
   const full = join(vault, relative);
   if (!full.startsWith(vault) || !full.toLowerCase().endsWith('.md')) return undefined;
@@ -98,6 +119,28 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/notes') {
       const vault = vaultFor(url.searchParams.get('address') || '');
       return send(200, 'application/json', JSON.stringify({ ok: true, vault, notes: listNotes(vault) }));
+    }
+    if (url.pathname === '/api/links') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = url.searchParams.get('path') ?? '';
+      const full = notePath(vault, rel);
+      if (full === undefined || !existsSync(full)) {
+        return send(404, 'application/json', JSON.stringify({ ok: false, error: 'note not found' }));
+      }
+      const notes = listNotes(vault);
+      const index = noteIndex(notes);
+      const out = wikiLinks(readFileSync(full, 'utf8')).map((raw) => ({ raw, path: resolveLink(index, raw) }));
+      const broken = out.filter((link) => link.path === null).map((link) => link.raw);
+      const back = [];
+      for (const other of notes) {
+        if (other === rel) continue;
+        try {
+          if (wikiLinks(readFileSync(join(vault, other), 'utf8')).some((raw) => resolveLink(index, raw) === rel)) back.push(other);
+        } catch {
+          // unreadable note: skip
+        }
+      }
+      return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, out, back, broken }));
     }
     if (url.pathname === '/api/note') {
       const vault = vaultFor(url.searchParams.get('address') || '');
