@@ -36,7 +36,7 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
     <textarea id="editor" spellcheck="false" placeholder="从左侧选一篇笔记…"></textarea>
     <div id="links"></div>
   </div>
-  <div id="search"><input id="q" placeholder="检索书库（回车）"><div id="hits"></div></div>
+  <div id="search"><input id="q" placeholder="检索书库与笔记（回车）"><label style="display:flex;gap:6px;align-items:center;margin:8px 0;font-size:12px;color:#8b96a8"><input type="checkbox" id="withNotes" checked> 含笔记（笔记按标题/正文单独打分）</label><div id="hits"></div></div>
   <div id="drafts">
     <div id="dlist"></div>
     <div id="dview">
@@ -51,7 +51,7 @@ var NL=String.fromCharCode(10);
 window.onerror=function(m,src,line,col){var s=document.getElementById("status");if(s){s.textContent="脚本错误: "+m+" @"+line+":"+col;s.style.color="#d98a8a"}};
 var notes=[],current="",expanded={},tree=null,currentMtime=0,dCur={kind:"",path:""};
 var byId={};
-["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","t-notes","t-search","t-drafts"].forEach(function(id){byId[id]=document.getElementById(id)});
+["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts"].forEach(function(id){byId[id]=document.getElementById(id)});
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
 function build(list){var root={dirs:{},files:[]};list.forEach(function(p){var parts=p.split("/");var name=parts.pop();var node=root;parts.forEach(function(d){node.dirs[d]=node.dirs[d]||{dirs:{},files:[]};node=node.dirs[d]});node.files.push({name:name,path:p})});return root}
 function expandAncestors(path){var parts=path.split("/");parts.pop();var acc="";parts.forEach(function(d){acc=acc===""?d:acc+"/"+d;expanded[acc]=true})}
@@ -71,5 +71,20 @@ byId.dlist.addEventListener("click",async function(e){var el=e.target.closest(".
 byId.dcompile.onclick=async function(){if(dCur.kind!=="draft"){byId.dreport.textContent="先选一篇收件箱草稿";return}try{var j=await (await fetch("/api/compile",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({paths:[dCur.path]})})).json();var n=(j.notes||[])[0]||{};byId.dreport.textContent="编译："+(n.written?"已写入 ":"未写入 ")+(n.output||n.error||"")+NL+(n.changes||[]).join(NL);loadDrafts()}catch(err){byId.dreport.textContent="编译失败"}};
 async function promote(confirm){if(dCur.kind!=="compiled"){byId.dreport.textContent="先选一篇已编译草稿";return}try{var j=await (await fetch("/api/promote",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({source:dCur.path,confirm:confirm,force:confirm})})).json();if(j.ok===false){byId.dreport.textContent="失败："+(j.error||"");return}byId.dreport.textContent=(j.notes||[]).map(function(n){return n.status+" "+n.source+" -> "+n.target+NL+(n.diff||[]).map(function(d){return "  "+d.kind+" "+d.text}).join(NL)}).join(NL)||"没有可提升的草稿";if(confirm)loadDrafts()}catch(err){byId.dreport.textContent="失败"}}
 byId.dpreview.onclick=function(){promote(false)};byId.dconfirm.onclick=function(){promote(true)};
+byId.q.addEventListener("keydown",async function(e){
+  if(e.key!=="Enter")return;
+  var text=byId.q.value.trim(); if(!text)return;
+  byId.hits.textContent="检索中…";
+  var extra=byId.withNotes.checked?"&notes=1&notesLimit=5":"";
+  try{
+    var j=await (await fetch("/api/query?q="+encodeURIComponent(text)+"&k=8"+extra)).json();
+    byId.hits.innerHTML=j.hits.map(function(h){
+      var note=h.kind==="note";
+      var pages=note?"笔记":"p."+(h.pageStart||h.page)+(h.pageEnd&&h.pageEnd!==h.page?"-"+h.pageEnd:"");
+      var head=esc(h.path)+" · "+(note?"":("§"+esc(h.section||"—")+" · "))+pages+" · "+h.score;
+      return '<article><div class="meta"><b>'+esc(h.path)+'</b> · '+(note?"笔记":("§"+esc(h.section||"—")+" · "))+pages+' · '+h.score+'</div><div class="ex">'+esc(h.excerpt)+'</div></article>';
+    }).join("")||"没有命中";
+  }catch(err){byId.hits.textContent="检索失败"}
+});
 load();
 </script></html>

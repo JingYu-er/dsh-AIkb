@@ -52,6 +52,38 @@ const fsFor = (vault) => ({
   root: vault,
   exists: async (rel) => existsSync(join(vault, rel)),
   readText: async (rel) => readFileSync(join(vault, rel), 'utf8'),
+  // The notes layer lists markdown at query time; it needs bytes/mtime only as a cache key.
+  listFiles: async () => {
+    const out = [];
+    const walk = (dir, prefix, depth) => {
+      if (depth > 8 || out.length >= 6000) return;
+      let entries = [];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (out.length >= 6000) return;
+        if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+        const full = join(dir, entry.name);
+        const rel = prefix === '' ? entry.name : prefix + '/' + entry.name;
+        if (entry.isDirectory()) {
+          walk(full, rel, depth + 1);
+        } else if (entry.name.toLowerCase().endsWith('.md')) {
+          let stat = { size: 0, mtimeMs: 0 };
+          try {
+            stat = statSync(full);
+          } catch {
+            // unreadable file: still list it so the layer can skip it
+          }
+          out.push({ relPath: rel, bytes: stat.size, modifiedAt: new Date(stat.mtimeMs).toISOString() });
+        }
+      }
+    };
+    walk(vault, '', 0);
+    return out;
+  },
 });
 
 /** Markdown notes under the vault, skipping dot-directories and the index itself. */
@@ -159,7 +191,9 @@ const createUiServer = () => createServer(async (req, res) => {
       const q = url.searchParams.get('q') ?? '';
       const k = Math.min(20, Math.max(1, Number(url.searchParams.get('k') ?? 8)));
       const fs = fsFor(vaultFor(url.searchParams.get('address') || url.searchParams.get('workspace') || ''));
-      return send(200, 'application/json', JSON.stringify(await runQuery(fs, q, k, {})));
+      const notes = url.searchParams.get('notes') === '1';
+      const notesLimit = Math.min(10, Math.max(1, Number(url.searchParams.get('notesLimit') ?? 5)));
+      return send(200, 'application/json', JSON.stringify(await runQuery(fs, q, k, { notesLayer: notes, notesLimit })));
     }
     if (url.pathname === '/api/section') {
       const path = url.searchParams.get('path') ?? '';
