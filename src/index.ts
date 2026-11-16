@@ -138,22 +138,19 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
       // not listening yet: start it below
     }
     try {
-      const { spawn } = await import('node:child_process');
+      // In-process, like the other plugin UIs: the server lives exactly as long as DSH.
       const { fileURLToPath } = await import('node:url');
       const script = fileURLToPath(new URL('../scripts/kb-ui.mjs', import.meta.url));
-      const child = spawn(process.execPath, [script], {
-        detached: true,
-        stdio: 'ignore',
-        env: {
-          ...process.env,
-          KB_VAULT: (config as unknown as { vaultPath?: string }).vaultPath ?? process.env.KB_VAULT ?? '',
-          KB_UI_PORT: port,
-          KB_PROMOTE_DIR: (config as { promoteDir?: string }).promoteDir ?? '',
-          KB_ALLOW_WRITES: config.allowWrites === true ? '1' : '0',
-        },
+      const { startUiServer } = await import(script);
+      const configuredVault = config.vaultPath !== undefined && config.vaultPath.trim() !== ''
+        ? nodePath.resolve(config.vaultPath.trim())
+        : process.env.KB_VAULT ?? '';
+      await startUiServer({
+        port: Number(port),
+        vault: configuredVault,
+        promoteDir: (config as { promoteDir?: string }).promoteDir ?? '',
       });
-      child.unref();
-      logBoot(bootRoot, 'ui-start', 'spawned ' + script);
+      logBoot(bootRoot, 'ui-start', 'in-process ' + script);
     } catch (error) {
       logBoot(bootRoot, 'ui-start-failed', String(error));
     }

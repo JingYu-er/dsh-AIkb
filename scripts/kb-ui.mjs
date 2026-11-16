@@ -15,7 +15,8 @@ const readBody = async (req) => {
   return body;
 };
 
-const DEFAULT_VAULT = process.env.KB_VAULT ?? 'D:/JingYu/Desktop/ai-brain/MyObsidian';
+let DEFAULT_VAULT = process.env.KB_VAULT ?? 'D:/JingYu/Desktop/ai-brain/MyObsidian';
+let PROMOTE_DIR = process.env.KB_PROMOTE_DIR ?? '';
 const PORT = Number(process.env.KB_UI_PORT ?? 7341);
 const pageFile = fileURLToPath(new URL('./kb-ui.html', import.meta.url));
 const page = () => readFileSync(pageFile, 'utf8');
@@ -144,7 +145,7 @@ const notePath = (vault, relative) => {
 };
 const { runQuery } = await import('../dist/application/kb-query.js');
 
-createServer(async (req, res) => {
+const createUiServer = () => createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const send = (code, type, body) => { res.writeHead(code, { 'content-type': type }); res.end(body); };
   try {
@@ -171,15 +172,14 @@ createServer(async (req, res) => {
       const inbox = new NodeInboxFs(vault);
       const drafts = (await inbox.listDrafts()).filter((p) => !p.startsWith('_compiled/'));
       let compiled = [];
-      const promoteDir = process.env.KB_PROMOTE_DIR ?? '';
-      if (promoteDir !== '') {
+      if (PROMOTE_DIR !== '') {
         try {
-          compiled = [...(await new NodePromoteFs(vault, promoteDir).listCompiled())];
+          compiled = [...(await new NodePromoteFs(vault, PROMOTE_DIR).listCompiled())];
         } catch {
           compiled = [];
         }
       }
-      return send(200, 'application/json', JSON.stringify({ ok: true, drafts, compiled, promoteDir }));
+      return send(200, 'application/json', JSON.stringify({ ok: true, drafts, compiled, promoteDir: PROMOTE_DIR }));
     }
     if (url.pathname === '/api/draft') {
       const vault = vaultFor(url.searchParams.get('address') || '');
@@ -199,7 +199,7 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/promote' && req.method === 'POST') {
       const parsed = JSON.parse(await readBody(req));
       const vault = vaultFor(url.searchParams.get('address') || '');
-      const promoteDir = process.env.KB_PROMOTE_DIR ?? '';
+      const promoteDir = PROMOTE_DIR;
       if (promoteDir === '') {
         return send(400, 'application/json', JSON.stringify({ ok: false, error: 'KB_PROMOTE_DIR is not configured (promoteDir)' }));
       }
@@ -278,4 +278,32 @@ createServer(async (req, res) => {
   } catch (error) {
     return send(500, 'application/json', JSON.stringify({ ok: false, error: String(error) }));
   }
-}).listen(PORT, '127.0.0.1', () => console.log('kb-ui on http://127.0.0.1:' + PORT));
+});
+
+/**
+ * Start the UI server inside the caller's process (the plugin host), so it lives exactly
+ * as long as DSH does instead of leaving a detached process behind.
+ */
+export function startUiServer(options = {}) {
+  if (options.vault) DEFAULT_VAULT = resolve(String(options.vault));
+  if (options.promoteDir !== undefined) PROMOTE_DIR = String(options.promoteDir);
+  const port = Number(options.port ?? PORT);
+  const server = createUiServer();
+  return new Promise((resolvePromise, reject) => {
+    const onError = (error) => reject(error);
+    server.once('error', onError);
+    server.listen(port, '127.0.0.1', () => {
+      server.off('error', onError);
+      console.log('kb-ui on http://127.0.0.1:' + port);
+      resolvePromise(server);
+    });
+  });
+}
+
+// Direct run: node scripts/kb-ui.mjs
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  startUiServer().catch((error) => {
+    console.error('kb-ui failed:', error);
+    process.exitCode = 1;
+  });
+}
