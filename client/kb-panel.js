@@ -1,41 +1,45 @@
-/* dsh-kb sidebar panel — hand-written ModuleLoader bundle (no build step). */
+/* dsh-kb panel — sidebar entry + main page (same slots as dsh-skill-mcp-panel). */
 window.__ModuleLoader__.load({
   id: 'dsh-kb',
   factory: (require) => {
     var module = { exports: {} };
     var exports = module.exports;
     var React = require('react');
-    var ID = 'dsh-kb-panel';
+    var ID = 'dsh-kb';
     var SRC = 'http://127.0.0.1:7317/';
 
-    function KbBody() {
-      return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 } },
-        React.createElement('div', { style: { padding: '8px 12px', borderBottom: '1px solid #2a2e36', color: '#8b96a8', fontSize: 12 } },
-          '本地索引 · ', React.createElement('a', { href: SRC, target: '_blank', rel: 'noreferrer', style: { color: '#9cc7ff' } }, SRC)),
+    function KbIcon() {
+      return React.createElement('span', { style: { fontSize: 15, lineHeight: 1 } }, '📚');
+    }
+
+    function KbPage() {
+      return React.createElement('div', { style: { height: '100%', display: 'flex', flexDirection: 'column' } },
+        React.createElement('div', { style: { padding: '8px 12px', borderBottom: '1px solid #2a2e36', fontSize: 12, color: '#8b96a8' } },
+          'dsh-kb · 本地索引 ',
+          React.createElement('a', { href: SRC, target: '_blank', rel: 'noreferrer', style: { color: '#9cc7ff' } }, SRC)),
         React.createElement('iframe', {
           src: SRC,
           title: 'dsh-kb',
           style: { flex: 1, width: '100%', border: '0', background: '#14161a' },
         }));
     }
-    function KbTitle() {
-      return React.createElement('span', { style: { fontSize: 13 } }, '知识库');
-    }
 
     function apply(ctx) {
-      ctx.effect(() => ctx.sidebarRightTabs.register({
+      // One sidebar row; its id is the main-page key, so selecting the row renders KbPage.
+      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
+        name: 'sidebar.panellist',
         id: ID,
-        kind: 'kb',
-        patterns: [],
-        title: () => '知识库',
-        guide: [{ order: 40, title: () => '知识库', description: () => '在书库里检索、看章节原文' }],
-      }));
-      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: ID }, KbBody)));
-      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({ name: 'sidebar.right.pane.tab.title', key: ID }, KbTitle)));
+        order: 1,
+        label: () => '知识库',
+      }, KbIcon));
+      ctx.slots.inject('main', () => ctx.slots.register({
+        name: 'main',
+        key: ID,
+      }, KbPage));
     }
 
     exports.name = 'kb-panel';
-    exports.inject = ['slots', 'sidebarRightTabs'];
+    exports.inject = ['slots'];
     exports.apply = apply;
     return module.exports;
   },
