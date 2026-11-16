@@ -23,3 +23,6 @@ Thumbs.db
 .idea/
 .vscode/
 __pycache__/
+
+# 会话交接记录（不进仓库）
+docs/HANDOFF.md
