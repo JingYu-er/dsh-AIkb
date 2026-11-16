@@ -91,7 +91,11 @@ async function loadLinks(p){
   var r=await fetch('/api/links?path='+encodeURIComponent(p)); var j=await r.json();
   if(!j.ok){byId.links.innerHTML='';byId.links.style.display='none';return}
   var html='';
-  if(j.out.length)html+='<div class="grp">出链 '+j.out.length+'</div>'+j.out.map(function(l){return '<div class="lk'+(l.path?'':' broken')+'" data-p="'+(l.path||'')+'">'+esc(l.raw)+(l.path?'':'（断链）')+'</div>'}).join('');
+  if(j.out.length)html+='<div class="grp">出链 '+j.out.length+'</div>'+j.out.map(function(l){
+    if(!l.path)return '<div class="lk broken">'+esc(l.raw)+'（断链）</div>';
+    if(l.kind==='file')return '<div class="lk broken" style="color:#c9b48a">'+esc(l.raw)+'（附件）</div>';
+    return '<div class="lk" data-p="'+l.path+'">'+esc(l.raw)+'</div>';
+  }).join('');
   if(j.back.length)html+='<div class="grp">反链 '+j.back.length+'</div>'+j.back.map(function(b){return '<div class="lk" data-p="'+esc(b)+'">'+esc(b)+'</div>'}).join('');
   byId.links.innerHTML=html||'<div class="grp">这篇笔记没有 wikilink</div>';
   byId.links.style.display='block';

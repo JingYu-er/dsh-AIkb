@@ -73,22 +73,55 @@ const listNotes = (vault, limit = 3000) => {
 /** Wikilinks ([[Target]], [[Target|alias]], [[Target#heading]]) in note order. */
 const wikiLinks = (text) => [...text.matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g)].map((m) => m[1].trim()).filter((s) => s !== '');
 
-const noteIndex = (notes) => {
+const stemOf = (name) => name.replace(/\.[^.]+$/, '');
+
+const noteIndex = (notes, files) => {
   const byPath = new Set(notes);
-  const byName = new Map();
+  const noteByStem = new Map();
   for (const p of notes) {
-    const base = p.split('/').pop().replace(/\.md$/i, '');
-    if (!byName.has(base)) byName.set(base, []);
-    byName.get(base).push(p);
+    const stem = stemOf(p.split('/').pop());
+    if (!noteByStem.has(stem)) noteByStem.set(stem, p);
   }
-  return { byPath, byName };
+  const fileByPath = new Set(files);
+  const fileByName = new Map();
+  for (const f of files) {
+    const base = f.split('/').pop();
+    if (!fileByName.has(base)) fileByName.set(base, f);
+  }
+  return { byPath, noteByStem, fileByPath, fileByName };
 };
 
-/** Resolve a wikilink target: full path first, else a note with the same base name. */
+/**
+ * Resolve a wikilink the way Obsidian does: a note path, an attachment ([[x.pdf]]),
+ * or an extension-less link that matches a note or attachment stem.
+ */
 const resolveLink = (index, raw) => {
-  if (index.byPath.has(raw)) return raw;
-  const list = index.byName.get(raw.split('/').pop());
-  return list !== undefined && list.length > 0 ? list[0] : null;
+  if (index.byPath.has(raw)) return { path: raw, kind: 'note' };
+  if (index.fileByPath.has(raw)) return { path: raw, kind: 'file' };
+  const base = raw.split('/').pop();
+  const hasExt = /\.[^.]+$/.test(base);
+  const stem = stemOf(base);
+  if (index.noteByStem.has(stem)) return { path: index.noteByStem.get(stem), kind: 'note' };
+  if (hasExt && index.fileByName.has(base)) return { path: index.fileByName.get(base), kind: 'file' };
+  if (index.fileByName.has(stem)) return { path: index.fileByName.get(stem), kind: 'file' };
+  return null;
+};
+
+/** Vault-relative paths of every file (attachments included), skipping dot dirs. */
+const listFiles = (vault, limit = 5000) => {
+  const out = [];
+  const walk = (dir, prefix, depth) => {
+    if (depth > 8 || out.length >= limit) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (out.length >= limit) return;
+      if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+      const rel = prefix === '' ? entry.name : prefix + '/' + entry.name;
+      if (entry.isDirectory()) walk(join(dir, entry.name), rel, depth + 1);
+      else out.push(rel);
+    }
+  };
+  walk(vault, '', 0);
+  return out.sort();
 };
 
 const notePath = (vault, relative) => {
@@ -129,14 +162,25 @@ createServer(async (req, res) => {
         return send(404, 'application/json', JSON.stringify({ ok: false, error: 'note not found' }));
       }
       const notes = listNotes(vault);
-      const index = noteIndex(notes);
-      const out = wikiLinks(readFileSync(full, 'utf8')).map((raw) => ({ raw, path: resolveLink(index, raw) }));
+      const index = noteIndex(notes, listFiles(vault));
+      const stem = stemOf(rel.split('/').pop());
+      const out = wikiLinks(readFileSync(full, 'utf8')).map((raw) => {
+        const hit = resolveLink(index, raw);
+        return { raw, path: hit?.path ?? null, kind: hit?.kind ?? 'broken' };
+      });
       const broken = out.filter((link) => link.path === null).map((link) => link.raw);
       const back = [];
       for (const other of notes) {
         if (other === rel) continue;
         try {
-          if (wikiLinks(readFileSync(join(vault, other), 'utf8')).some((raw) => resolveLink(index, raw) === rel)) back.push(other);
+          const links = wikiLinks(readFileSync(join(vault, other), 'utf8'));
+          const hit = links.map((raw) => resolveLink(index, raw)).some((resolved) => {
+            if (resolved === null) return false;
+            if (resolved.kind === 'note') return resolved.path === rel;
+            // A link to an attachment of the same name counts as a link to the note.
+            return stemOf(resolved.path.split('/').pop()) === stem;
+          });
+          if (hit) back.push(other);
         } catch {
           // unreadable note: skip
         }
