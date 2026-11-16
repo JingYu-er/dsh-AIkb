@@ -39,7 +39,7 @@ window.__ModuleLoader__.load({
     }
 
     exports.name = 'kb-panel';
-    exports.inject = ['slots'];
+    exports.inject = ['slots', 'locale'];
     exports.apply = apply;
     return module.exports;
   },
