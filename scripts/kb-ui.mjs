@@ -110,7 +110,12 @@ const noteIndex = (notes, files) => {
  */
 const resolveLink = (index, raw) => {
   if (index.byPath.has(raw)) return { path: raw, kind: 'note' };
-  if (index.fileByPath.has(raw)) return { path: raw, kind: 'file' };
+  if (index.fileByPath.has(raw)) {
+    // [[x.pdf]] next to x.md is Obsidian's note+attachment pattern: treat it as the note.
+    const fileStem = stemOf(raw.split('/').pop());
+    if (index.noteByStem.has(fileStem)) return { path: index.noteByStem.get(fileStem), kind: 'note' };
+    return { path: raw, kind: 'file' };
+  }
   const base = raw.split('/').pop();
   const hasExt = /\.[^.]+$/.test(base);
   const stem = stemOf(base);
@@ -294,7 +299,9 @@ export function startUiServer(options = {}) {
     server.once('error', onError);
     server.listen(port, '127.0.0.1', () => {
       server.off('error', onError);
-      console.log('kb-ui on http://127.0.0.1:' + port);
+      const bound = server.address();
+      const actual = typeof bound === 'object' && bound !== null ? bound.port : port;
+      console.log('kb-ui on http://127.0.0.1:' + actual);
       resolvePromise(server);
     });
   });
