@@ -22,6 +22,7 @@ import { createKbLinkReviewTool } from './tools/kb-link-review.tool.js';
 import { createKbLintTool } from './tools/kb-lint.tool.js';
 import { createKbPromoteTool } from './tools/kb-promote.tool.js';
 import { createKbQueryTool } from './tools/kb-query.tool.js';
+import { createKbReviewTool } from './tools/kb-review.tool.js';
 import { createKbSuggestLinksTool } from './tools/kb-suggest-links.tool.js';
 
 /** Stable cordis plugin identity. */
@@ -269,6 +270,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     registerTool(ctx, createKbIndexTool({ allowWrites: () => allowWrites, resolveRoot }));
     registerTool(ctx, createKbLinkReviewTool({ allowWrites: () => allowWrites, resolveRoot }));
     registerTool(ctx, createKbLinkApplyTool({ allowWrites: () => allowWrites, resolveRoot }));
+    registerTool(ctx, createKbReviewTool({ allowWrites: () => allowWrites, resolveRoot }));
     registerTool(
       ctx,
       createKbIngestTool({

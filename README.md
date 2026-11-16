@@ -9,7 +9,7 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path and the compile loop are implemented and tested (126 unit tests):
+MVP read path and the compile loop are implemented and tested (129 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
@@ -25,6 +25,7 @@ MVP read path and the compile loop are implemented and tested (126 unit tests):
 | `kb_index` | Deterministic vault catalog: scan notes and wikilinks, then render `index.md` by type with per-type counts, recent changes, orphans, untyped notes and broken links. `write:true` rebuilds it and appends one `log.md` line. |
 | `kb_link_review` | Turn similarity suggestions into SCHEMA-checked link candidates (direction, no duplicate, max 8, confidence ≥ 0.25) and write review queues under `inbox/links/`; never edits formal notes. |
 | `kb_link_apply` | Apply queue rows whose `why` was filled in: show a diff, then append `- [[target]] — why` to `## 关联`, back up to `.wiki/backups/` and mark the row `[x]`. Confirm-gated. |
+| `kb_review` | Deterministic contradiction candidates: take up to 3 similar older notes, extract conclusion-like paragraphs into `inbox/review/` queues with an empty `判定` column (冲突 / 细化 / 无关); preview by default, never edits notes. |
 
 Writes are off by default and, when enabled, are confined to `inbox/`, `.wiki/`,
 the generated `index.md`/`log.md`, and the `promoteDir` you configure for

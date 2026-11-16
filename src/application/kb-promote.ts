@@ -51,6 +51,8 @@ export interface PromoteReport {
   readonly dryRun: boolean;
   readonly elapsedMs: number;
   readonly error?: { code: string; message: string };
+  /** Best-effort follow-up problems (e.g. contradiction review generation) that must not fail the promote. */
+  readonly warnings?: readonly string[];
 }
 
 function coded(code: string, message: string): Error {

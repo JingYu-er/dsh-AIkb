@@ -10,6 +10,38 @@ the decision, and how to reproduce. Benchmarks come from `bench/run.mjs`
 
 ---
 
+## 2026-11-16 — contradiction review queues (`kb_review`)
+
+**Problem.** Link search already told us which notes are *about* the same thing, but nothing caught
+notes that make *incompatible claims* — e.g. the 齐纳击穿 / 雪崩击穿 pair on temperature dependence of
+the breakdown voltage. Reading every similar pair by hand does not scale, and auto-editing the formal
+zone is exactly what SCHEMA forbids.
+
+**Changes.** `src/application/kb-review.ts` reuses the existing idf-weighted cosine
+(`rankSimilar` from `kb-suggest-links.ts`, top 3, score ≥ 0.15). For each similar note it extracts
+2–3 conclusion-like paragraphs (≥ 20 chars, ranked by the words
+`必须|不能|等于|大于|小于|应当|因此|所以|结论|注意|错误|正确|公式|系数` plus digits), pairs them greedily by
+token overlap, and writes `inbox/review/<slug>.md` (`type: review-queue`) with the table
+`| 旧笔记 | 相似度 | 旧说法（摘录） | 新说法（摘录） | 判定（待填） | 依据（待填） |`.
+The verdict column accepts only `冲突 / 细化 / 无关`; empty means undecided. Re-runs merge: existing
+rows and any filled verdict/basis survive, only new `(old path, old text, new text)` keys are appended.
+The `kb_review` tool previews by default (`write:false`); `note?` targets one note, otherwise the five
+most recently modified formal notes. `kb_promote` now runs one best-effort review after a confirmed
+write (failure becomes a warning and a `log.md` line, never a failed promote), and `kb_lint` gained the
+read-only `review-pending` info rule (one finding per queue, not a gate).
+
+**Numbers (real vault, 2026-11-16).** 5 queues, 14 pending pairs, 0 warnings; `kb_lint` reports 5
+`review-pending` infos out of 104 findings. Strongest pairs: 雪崩击穿 → 齐纳击穿 0.396,
+Windows开启SSH → vscode配置ssh 0.301, 虚拟局域网 → vscode通过ssh连接树莓派 0.280. 129 tests pass,
+3 of them new (merge keeps a filled verdict; at most five queues).
+
+**Usage.** `kb_review {write:true}` or `kb_review {note:"学习/硬件/笔记/雪崩击穿.md", write:true}`;
+open `inbox/review/*.md` and fill 判定/依据 by hand or with an agent. `kb_lint` shows what is still pending.
+
+**Next.** The verdict is intentionally left to a human/agent; conflicts are reported, never auto-applied.
+v1 gap: pairing is lexical, so procedure steps that merely share vocabulary can be paired — the empty
+verdict column is the safety valve, and claim extraction (numbers, units, quantifiers) is the next step.
+
 ## 2026-11-16 — notes retrieval quality: field weighting, hub penalty, vectors, rerank
 
 **Problem.** The query-time notes layer (`a680f0e`) put the right note in the top five for 9 of 11

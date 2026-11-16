@@ -26,6 +26,28 @@ export interface SuggestReport {
   readonly elapsedMs: number;
 }
 
+/** One note's idf-weighted term vector plus the link targets it already carries. */
+export interface NoteVector {
+  readonly path: string;
+  readonly name: string;
+  readonly weights: Map<string, number>;
+  readonly links: Set<string>;
+  readonly norm: number;
+}
+
+/** Whole-vault vectors, built once and shared by link review and contradiction review. */
+export interface NoteCorpus {
+  readonly docs: readonly NoteVector[];
+  readonly df: Map<string, number>;
+  readonly postings: Map<string, readonly { readonly doc: number; readonly weight: number }[]>;
+}
+
+export interface SimilarNote {
+  readonly path: string;
+  readonly name: string;
+  readonly score: number;
+}
+
 const SKIP_PREFIX = /^(copilot|\.agents|\.claude|\.wiki)\//i;
 /** Compiled drafts are copies of inbox drafts; suggesting links between the two is noise. */
 const COMPILED_PREFIX = /^inbox\/_compiled\//i;
@@ -96,16 +118,8 @@ function whyTerms(terms: readonly string[]): string {
     .join('\u3001');
 }
 
-interface Doc {
-  readonly path: string;
-  readonly name: string;
-  readonly weights: Map<string, number>;
-  readonly links: Set<string>;
-  readonly norm: number;
-}
-
-export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { note?: string; limit?: number; minScore?: number; perNote?: number } = {}): Promise<SuggestReport> {
-  const started = Date.now();
+/** Read every note once and build the idf-weighted vectors shared by link suggestions and review. */
+export async function buildNoteCorpus(fs: SuggestFs): Promise<NoteCorpus> {
   const entries = (await fs.listFiles()).filter(
     (entry) =>
       /\.md$/i.test(entry.relPath) &&
@@ -141,7 +155,7 @@ export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { 
     raw.push({ path: entry.relPath, name: basenameOf(entry.relPath), terms, links });
   }
   const total = raw.length;
-  const docs: Doc[] = raw.map((doc) => {
+  const docs: NoteVector[] = raw.map((doc) => {
     const weights = new Map<string, number>();
     let norm = 0;
     for (const [term, tf] of doc.terms) {
@@ -160,6 +174,54 @@ export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { 
       else list.push({ doc: index, weight });
     }
   });
+  return { docs, df, postings };
+}
+
+/**
+ * Rank the notes closest to one note by idf-weighted cosine. Unlike link suggestions this
+ * applies no link/specificity filter: a contradiction usually lives in a note you already
+ * link, so review needs both linked and unlinked neighbours.
+ */
+export function rankSimilar(
+  corpus: NoteCorpus,
+  path: string,
+  options: { topK?: number; minScore?: number; accept?: (doc: NoteVector) => boolean } = {},
+): SimilarNote[] {
+  const index = corpus.docs.findIndex((doc) => doc.path === path);
+  if (index < 0) return [];
+  const doc = corpus.docs[index];
+  if (doc === undefined || doc.norm === 0) return [];
+  const scores = new Map<number, number>();
+  for (const [term, weight] of doc.weights) {
+    for (const posting of corpus.postings.get(term) ?? []) {
+      if (posting.doc === index) continue;
+      scores.set(posting.doc, (scores.get(posting.doc) ?? 0) + weight * posting.weight);
+    }
+  }
+  const minScore = options.minScore ?? 0.2;
+  const topK = Math.max(1, options.topK ?? 3);
+  const accept = options.accept;
+  return [...scores.entries()]
+    .map(([target, dot]) => {
+      const other = corpus.docs[target];
+      const score = other === undefined ? 0 : dot / (doc.norm * (other.norm || 1));
+      return { other, score };
+    })
+    .filter((entry) => entry.other !== undefined && entry.score >= minScore && (accept === undefined || accept(entry.other)))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, topK)
+    .map((entry) => ({
+      path: entry.other?.path ?? '',
+      name: entry.other?.name ?? '',
+      score: Number(entry.score.toFixed(3)),
+    }));
+}
+
+export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { note?: string; limit?: number; minScore?: number; perNote?: number } = {}): Promise<SuggestReport> {
+  const started = Date.now();
+  const corpus = await buildNoteCorpus(fs);
+  const { docs, df } = corpus;
+  const total = docs.length;
   const minScore = options.minScore ?? 0.2;
   const only = options.note === undefined ? undefined : docs.findIndex((doc) => doc.path === options.note || doc.name.toLowerCase() === (options.note ?? '').toLowerCase());
   const perNote = Math.max(1, options.perNote ?? 2);
@@ -169,7 +231,7 @@ export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { 
     if (doc.norm === 0) return;
     const scores = new Map<number, number>();
     for (const [term, weight] of doc.weights) {
-      for (const posting of postings.get(term) ?? []) {
+      for (const posting of corpus.postings.get(term) ?? []) {
         if (posting.doc === index) continue;
         scores.set(posting.doc, (scores.get(posting.doc) ?? 0) + weight * posting.weight);
       }

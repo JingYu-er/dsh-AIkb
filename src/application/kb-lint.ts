@@ -2,6 +2,7 @@
 
 import type { SchemaNoteType } from '../domain/kb-schema.js';
 import { isSpecialNote, normaliseSchemaType } from '../domain/kb-schema.js';
+import { countPendingReviewRows } from './kb-review.js';
 
 export interface LintEntry {
   readonly relPath: string;
@@ -45,8 +46,9 @@ const TEMPLATE_PREFIX = /(^|\/)(ZtTemplates|Templater|Templates)\//i;
 /** Generated artifacts and drawing sidecars are not notes. */
 const GENERATED = /^(index|log)\.md$/i;
 const DRAWING = /\.excalidraw\.md$/i;
-/** Link queues are review scaffolding, not notes. */
+/** Link and contradiction queues are review scaffolding, not notes. */
 const QUEUE_PREFIX = /^inbox\/links\//i;
+const REVIEW_QUEUE_PREFIX = /^inbox\/review\//i;
 const FENCED = /~~~[\s\S]*?~~~|```[\s\S]*?```/g;
 const ASSOCIATION = /^##[ \t]+关联[ \t]*$/m;
 const NEXT_HEADING = /^#{1,2}[ \t]+/m;
@@ -118,13 +120,15 @@ interface NoteRecord {
 
 export async function runLint(fs: LintFs, vaultRoot: string): Promise<LintReport> {
   const started = Date.now();
-  const notes = (await fs.listFiles()).filter(
+  const all = await fs.listFiles();
+  const notes = all.filter(
     (entry) =>
       /\.md$/i.test(entry.relPath) &&
       !SKIP_PREFIX.test(entry.relPath) &&
       !SKIP_FILES.has(entry.relPath) &&
       !COMPILED_PREFIX.test(entry.relPath) &&
       !QUEUE_PREFIX.test(entry.relPath) &&
+      !REVIEW_QUEUE_PREFIX.test(entry.relPath) &&
       !TEMPLATE_PREFIX.test(entry.relPath) &&
       !GENERATED.test(entry.relPath) &&
       !DRAWING.test(entry.relPath),
@@ -216,6 +220,20 @@ export async function runLint(fs: LintFs, vaultRoot: string): Promise<LintReport
     }
     if (!isSpecialNote(record.path) && record.type !== 'moc' && !/^inbox\//i.test(record.path) && (inboundByPath.get(record.path) ?? 0) === 0) {
       pushFinding(findings, counts, { rule: 'orphan', severity: 'warn', path: record.path, detail: 'note has no inbound wikilink' });
+    }
+  }
+  // Contradiction queues are review scaffolding: report unfilled verdicts, never gate on them.
+  for (const entry of all) {
+    if (!REVIEW_QUEUE_PREFIX.test(entry.relPath) || !/\.md$/i.test(entry.relPath)) continue;
+    let text = '';
+    try {
+      text = await fs.readText(entry.relPath);
+    } catch {
+      continue;
+    }
+    const pending = countPendingReviewRows(text);
+    if (pending > 0) {
+      pushFinding(findings, counts, { rule: 'review-pending', severity: 'info', path: entry.relPath, detail: '待判定 ' + pending + ' 条' });
     }
   }
   return { ok: true, vaultRoot, notes: notes.length, findings, counts, elapsedMs: Date.now() - started };

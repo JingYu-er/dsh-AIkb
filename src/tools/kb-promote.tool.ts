@@ -2,6 +2,7 @@ import { NodePromoteFs } from '../adapters/fs/promote-fs.js';
 import { runPromote } from '../application/kb-promote.js';
 import { appendLog } from '../application/kb-log.js';
 import { NodeNotesFs } from '../adapters/fs/notes-fs.js';
+import { reviewNote } from '../application/kb-review.js';
 import type { PromoteReport } from '../application/kb-promote.js';
 import { defineTool } from './definition.js';
 import type { SchemaNode } from './definition.js';
@@ -71,6 +72,7 @@ const OUTPUT_SCHEMA: SchemaNode = {
         },
       },
     },
+    warnings: { type: 'array', items: { type: 'string' } },
   },
 };
 
@@ -83,6 +85,7 @@ function renderReport(report: PromoteReport): string {
       + (report.dryRun ? ' (preview; pass confirm:true to write)' : '') + ' | ' + report.elapsedMs + ' ms',
   ];
   if (report.error !== undefined) lines.push('error [' + report.error.code + '] ' + report.error.message);
+  for (const warning of report.warnings ?? []) lines.push('! ' + warning);
   for (const note of report.notes) {
     lines.push('  ' + note.status + ' ' + note.source + ' -> ' + note.target
       + (note.status === 'conflict' || note.status === 'update' ? ' (+' + note.added + ' / -' + note.removed + ')' : ''));
@@ -151,14 +154,37 @@ export function createKbPromoteTool(deps: KbPromoteDeps) {
         });
         // Only a confirmed write is worth a log line; a failed append must not undo the promote.
         const changed = report.totals.created + report.totals.updated;
+        const warnings: string[] = [];
         if (args.confirm === true && changed > 0) {
+          const notesFs = new NodeNotesFs(root);
           try {
-            await appendLog(new NodeNotesFs(root), 'promote', configured, changed + ' note(s) promoted (' + report.totals.created + ' new, ' + report.totals.updated + ' updated)');
+            await appendLog(notesFs, 'promote', configured, changed + ' note(s) promoted (' + report.totals.created + ' new, ' + report.totals.updated + ' updated)');
           } catch (error) {
             console.warn('[dsh-kb] log append failed: ' + (error instanceof Error ? error.message : String(error)));
           }
+          // Best-effort: seed a contradiction review queue for every note this run wrote.
+          // The queue lives in inbox/review/; the promoted note itself is never touched again.
+          for (const note of report.notes) {
+            if (!note.written || (note.status !== 'create' && note.status !== 'update')) continue;
+            try {
+              const queue = await reviewNote(notesFs, note.target, { write: true });
+              try {
+                await appendLog(notesFs, 'review', note.target, queue.pending + ' pending verdict(s) -> ' + queue.path);
+              } catch (error) {
+                warnings.push('review log append failed for ' + note.target + ': ' + (error instanceof Error ? error.message : String(error)));
+              }
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              warnings.push('review failed for ' + note.target + ': ' + message);
+              try {
+                await appendLog(notesFs, 'review', note.target, 'failed: ' + message);
+              } catch {
+                // best effort only; the promote result already succeeded
+              }
+            }
+          }
         }
-        return report;
+        return warnings.length === 0 ? report : { ...report, warnings };
       } catch (error) {
         return failedReport(root, dir, error);
       }
