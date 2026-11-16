@@ -461,3 +461,36 @@ node --input-type=module -e "import {NodeNotesFs} from './dist/adapters/fs/notes
 **v1 缺口.** Candidates are similarity-only and the direction table cannot say
 much while most notes have no `type`; queue merging never deletes stale rows,
 and nothing yet re-checks a link after the target note is edited.
+## v1.1 — review 队列降噪（2026-11-16）
+
+**问题.** v1 的摘录只过滤长度：纯图片段落、章节索引、CSDN 外链标题、操作步骤列表都能进队列，
+10 份队列 28 行里 26 行判「无关」，基本都是结构噪音；`type: link` 的步骤笔记被当成主张来源。
+
+**规则（实现于 `src/application/kb-review.ts`）.**
+- `claimLike(text)`：先剥 `![[…]]`、`![…](…)`、`[[…]]`、`[…](…)`、裸 URL、HTML 标签与 markdown 符号；
+  再要求 ① 有效单元 ≥ 20（中文字符/英文单词/数字计数）且 ② 含判断词（原 12 个 + 最大/最小/较高/较低/越高/越低）或数字。
+  两个以上 `1.`/`2.` 编号记号直接判否；纯图片段、`## 关联` 行、导航串都过不了。
+- `extractStatements` 用 `claimLike` 过滤，所以候选对**两侧都必须像主张**；`pairStatements` 出口再校验一次。
+- `reviewNote` 读目标笔记 frontmatter 的 `type`：`link`/`moc` 直接跳过候选生成（`skipped`），不新建队列、只保留已判定行。
+- 合并：已填判定（冲突/细化/无关）的行无条件保留；只删「判定为空且任一侧不 claimLike」的行（`removed`）。
+  link/moc 队列被删空时删除文件（新增可选 `ReviewFs.remove`，`NodeNotesFs` 用 `rm` 实现，`deleted`）。
+- `kb_review` 输出新增 `removed` / `deleted` / `skipped`，report 里渲染出来。
+
+**真实数字（D:/JingYu/Desktop/ai-brain/MyObsidian，`kb_review write:true` 逐篇 10 份，2026-11-16）.**
+- 队列 10 → 10，删文件 0：3 份 link 队列（虚拟局域网、win可视化树莓派、vscode通过ssh连接树莓派）各有 3 行已判「无关」，
+  按规则保留判定、不再新增，文件未改写；其余 7 份正常合并。
+- 已判定行 28 条全部保留：26「无关」+ 2「细化」（雪崩击穿↔齐纳击穿；基本共射↔三种基本BJT放大电路的比较）。
+- 被删的未判定噪音行：**0** —— 旧队列没有空判定行，真实噪音早已人工判过；删除规则只在下次出现空判定噪音时生效。
+- 新增候选对 4 条（基本共集 2、基本共基 2），两侧都过 claimLike（公式/特点段），与「三种基本BJT放大电路的比较」配对；
+  这是 v1.1 判定为「像主张」的新候选，不是结构噪音。
+- `kb_lint` review-pending：2 份队列共 **4 条**待判定（`counts['review-pending']` 按 finding 计为 2，detail 各「待判定 2 条」）。
+- 队列行数：基本共集 4→6、基本共基 3→5；基本共射 4、雪崩击穿 2、12-放大电路的分析方法 3、Windows开启SSH 3 均不变。
+
+**测试.** `tests/kb-review.test.ts` +4：① link 不生成队列（write:true 也不落文件）② 纯图片/索引列表不产生候选 ③ 两侧都有判断词仍配对 ④ 合并删未判定噪音、保留已判定。
+`npm run build && npm test` — 133 tests, 0 fail。
+
+**局限.**
+- 20 单元 + 判断词/数字是启发式：带数字的长操作步骤仍可能漏过；纯公式行靠数字过关，语义上未必是主张。
+- 只认 frontmatter `type: link|moc`；无 type 的导航笔记仍会生成候选。
+- 合并不回头重新裁决已填行，旧行摘录不满足 claimLike 也照留（这是「保留人工判断」的代价）。
+- 同一对笔记可能以不同摘录重复出现；v1.1 不做跨行去重。

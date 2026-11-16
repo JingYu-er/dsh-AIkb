@@ -57,6 +57,10 @@ export class NodeNotesFs implements IndexFs {
     await fsp.writeFile(target, content, 'utf8');
   }
 
+  async remove(relPath: string): Promise<void> {
+    await fsp.rm(this.resolve(relPath, true), { force: true });
+  }
+
   async exists(relPath: string): Promise<boolean> {
     try {
       await fsp.access(this.resolve(relPath, false));

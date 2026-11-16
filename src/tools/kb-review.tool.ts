@@ -77,6 +77,9 @@ const OUTPUT_SCHEMA: SchemaNode = {
           written: { type: 'boolean', required: true },
           merged: { type: 'integer', required: true },
           added: { type: 'integer', required: true },
+          removed: { type: 'integer', required: true },
+          deleted: { type: 'boolean', required: true },
+          skipped: { type: 'string' },
         },
       },
     },
@@ -94,8 +97,10 @@ function renderReport(report: ReviewRunReport): string {
   ];
   for (const warning of report.warnings) lines.push('! ' + warning);
   for (const queue of report.queues) {
-    lines.push('  ' + queue.note + ' -> ' + queue.path + (queue.written ? ' (written)' : '')
-      + ' | rows ' + queue.rows.length + ', pending ' + queue.pending);
+    lines.push('  ' + queue.note + ' -> ' + queue.path + (queue.deleted ? ' (deleted)' : queue.written ? ' (written)' : '')
+      + (queue.skipped === undefined ? '' : ' [' + queue.skipped + ']')
+      + ' | rows ' + queue.rows.length + ', pending ' + queue.pending
+      + (queue.removed > 0 ? ', dropped ' + queue.removed + ' noise row(s)' : ''));
     for (const candidate of queue.candidates) {
       lines.push('    ~ ' + candidate.name + ' (' + candidate.score.toFixed(3) + ', +' + candidate.pairs + ' pair(s))');
     }
@@ -129,7 +134,7 @@ export function createKbReviewTool(deps: KbReviewDeps) {
   return defineTool<KbReviewArgs, ReviewRunReport>({
     name: 'kb_review',
     description:
-      'Detect contradiction candidates without editing anything: for one note (or the 5 most recently modified formal notes), rank the 3 most similar notes, extract the 2–3 statements from each that most likely carry a conclusion, and write/merge review tables under inbox/review/<note-slug>.md with an empty 判定 column (冲突 / 细化 / 无关). write:false (default) previews candidate counts and paths; formal notes are never modified.',
+      'Detect contradiction candidates without editing anything: for one note (or the 5 most recently modified formal notes), rank the 3 most similar notes, extract the 2–3 claim-like statements from each, and write/merge review tables under inbox/review/<note-slug>.md with an empty 判定 column (冲突 / 细化 / 无关). Notes whose type is link or moc are steps/navigation and never get new candidates; merging keeps every filled verdict and drops only unfilled non-claim rows (a queue emptied that way is deleted). write:false (default) previews candidate counts and paths; formal notes are never modified.',
     parameters: {
       vaultPath: { type: 'string', description: 'Override the configured vault root.' },
       note: { type: 'string', description: 'Only this note (vault-relative path or basename). Omit to review the most recently modified 5 formal notes.' },
