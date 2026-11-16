@@ -130,7 +130,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
   logBoot(bootRoot, 'apply', 'apply() entered');
   // The web panel is an iframe over the local UI server, so make sure it is up once per process.
   void (async () => {
-    const port = process.env.KB_UI_PORT ?? '7317';
+    const port = process.env.KB_UI_PORT ?? '7331';
     try {
       const alive = await fetch('http://127.0.0.1:' + port + '/', { signal: AbortSignal.timeout(800) });
       if (alive.ok) return;

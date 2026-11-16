@@ -1,10 +1,10 @@
 import { createServer } from 'node:http';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const DEFAULT_VAULT = process.env.KB_VAULT ?? 'D:/JingYu/Desktop/ai-brain/MyObsidian';
-const PORT = Number(process.env.KB_UI_PORT ?? 7317);
+const PORT = Number(process.env.KB_UI_PORT ?? 7331);
 const pageFile = fileURLToPath(new URL('./kb-ui.html', import.meta.url));
 const page = () => readFileSync(pageFile, 'utf8');
 
@@ -92,8 +92,9 @@ const resolveLink = (index, raw) => {
 };
 
 const notePath = (vault, relative) => {
-  const full = join(vault, relative);
-  if (!full.startsWith(vault) || !full.toLowerCase().endsWith('.md')) return undefined;
+  const root = resolve(vault);
+  const full = resolve(root, relative);
+  if (!full.startsWith(root + sep) || !full.toLowerCase().endsWith('.md')) return undefined;
   return full;
 };
 const { runQuery } = await import('../dist/application/kb-query.js');
