@@ -128,6 +128,34 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     ? nodePath.resolve(config.workspaceRoot.trim())
     : process.cwd();
   logBoot(bootRoot, 'apply', 'apply() entered');
+  // The web panel is an iframe over the local UI server, so make sure it is up once per process.
+  void (async () => {
+    const port = process.env.KB_UI_PORT ?? '7317';
+    try {
+      const alive = await fetch('http://127.0.0.1:' + port + '/', { signal: AbortSignal.timeout(800) });
+      if (alive.ok) return;
+    } catch {
+      // not listening yet: start it below
+    }
+    try {
+      const { spawn } = await import('node:child_process');
+      const { fileURLToPath } = await import('node:url');
+      const script = fileURLToPath(new URL('../scripts/kb-ui.mjs', import.meta.url));
+      const child = spawn(process.execPath, [script], {
+        detached: true,
+        stdio: 'ignore',
+        env: {
+          ...process.env,
+          KB_VAULT: (config as unknown as { vaultPath?: string }).vaultPath ?? process.env.KB_VAULT ?? '',
+          KB_UI_PORT: port,
+        },
+      });
+      child.unref();
+      logBoot(bootRoot, 'ui-start', 'spawned ' + script);
+    } catch (error) {
+      logBoot(bootRoot, 'ui-start-failed', String(error));
+    }
+  })();
   if (ctx.tools === undefined || typeof ctx.tools.register !== 'function') {
     logBoot(bootRoot, 'apply-failed', 'tools service unavailable');
     throw new Error('dsh-kb: the tools service is unavailable; declare inject = ["tools"] (see src/index.ts)');

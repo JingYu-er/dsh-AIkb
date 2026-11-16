@@ -1,4 +1,4 @@
-/* dsh-kb panel — sidebar entry + main page (same slots as dsh-skill-mcp-panel). */
+/* dsh-kb panel — right sidebar tab over the local search UI. */
 window.__ModuleLoader__.load({
   id: 'dsh-kb',
   factory: (require) => {
@@ -8,12 +8,8 @@ window.__ModuleLoader__.load({
     var ID = 'dsh-kb';
     var SRC = 'http://127.0.0.1:7317/';
 
-    function KbIcon() {
-      return React.createElement('span', { style: { fontSize: 15, lineHeight: 1 } }, '📚');
-    }
-
-    function KbPage() {
-      return React.createElement('div', { style: { height: '100%', display: 'flex', flexDirection: 'column' } },
+    function KbBody() {
+      return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 } },
         React.createElement('div', { style: { padding: '8px 12px', borderBottom: '1px solid #2a2e36', fontSize: 12, color: '#8b96a8' } },
           'dsh-kb · 本地索引 ',
           React.createElement('a', { href: SRC, target: '_blank', rel: 'noreferrer', style: { color: '#9cc7ff' } }, SRC)),
@@ -24,22 +20,24 @@ window.__ModuleLoader__.load({
         }));
     }
 
+    function KbTitle() {
+      return React.createElement('span', { style: { fontSize: 13 } }, '知识库');
+    }
+
     function apply(ctx) {
-      // One sidebar row; its id is the main-page key, so selecting the row renders KbPage.
-      ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({
-        name: 'sidebar.panellist',
+      ctx.effect(() => ctx.sidebarRightTabs.register({
         id: ID,
-        order: 1,
-        label: () => '知识库',
-      }, KbIcon));
-      ctx.slots.inject('main', () => ctx.slots.register({
-        name: 'main',
-        key: ID,
-      }, KbPage));
+        kind: 'kb',
+        patterns: ['**/*'],
+        title: () => '知识库',
+        guide: [{ order: 40, title: () => '知识库', description: () => '在书库里检索、看章节原文' }],
+      }));
+      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name: 'sidebar.right.pane.tab', key: ID }, KbBody)));
+      ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab.title', () => ctx.slots.register({ name: 'sidebar.right.pane.tab.title', key: ID }, KbTitle)));
     }
 
     exports.name = 'kb-panel';
-    exports.inject = ['slots', 'locale'];
+    exports.inject = ['slots', 'sidebarRightTabs'];
     exports.apply = apply;
     return module.exports;
   },
