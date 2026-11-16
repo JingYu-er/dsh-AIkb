@@ -1,14 +1,16 @@
 /** Note taxonomy from the vault SCHEMA (SCHEMA.md); the compile layer speaks these names. */
 
-export type SchemaNoteType = 'concept' | 'thought' | 'source' | 'moc' | 'draft' | 'unknown';
+export type SchemaNoteType = 'concept' | 'thought' | 'source' | 'reference' | 'log' | 'moc' | 'draft' | 'unknown';
 
 /** Display order used by index.md and by the link engine. */
-export const SCHEMA_TYPES: readonly SchemaNoteType[] = ['concept', 'thought', 'source', 'moc', 'draft', 'unknown'];
+export const SCHEMA_TYPES: readonly SchemaNoteType[] = ['concept', 'thought', 'source', 'reference', 'log', 'moc', 'draft', 'unknown'];
 
 export const SCHEMA_TYPE_LABEL: Readonly<Record<SchemaNoteType, string>> = {
   concept: '概念 / concept',
   thought: '想法 / thought',
   source: '来源 / source',
+  reference: '速查 / reference',
+  log: '记录 / log',
   moc: '地图 / moc',
   draft: '草稿 / draft',
   unknown: '未分类 / unknown',
@@ -24,6 +26,13 @@ const ALIASES: Readonly<Record<string, SchemaNoteType>> = {
   '来源': 'source',
   '资料': 'source',
   'source-note': 'source',
+  reference: 'reference',
+  '速查': 'reference',
+  '参考': 'reference',
+  log: 'log',
+  '记录': 'log',
+  '日志': 'log',
+  '随记': 'log',
   moc: 'moc',
   map: 'moc',
   '地图': 'moc',

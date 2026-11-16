@@ -224,7 +224,7 @@ export async function scanVault(fs: IndexFs, vaultRoot: string): Promise<ScanRes
     else list.push(note);
   }
 
-  const byType: Record<SchemaNoteType, number> = { concept: 0, thought: 0, source: 0, moc: 0, draft: 0, unknown: 0 };
+  const byType: Record<SchemaNoteType, number> = { concept: 0, thought: 0, source: 0, reference: 0, log: 0, moc: 0, draft: 0, unknown: 0 };
   for (const note of notes) byType[note.type] += 1;
   const stats: IndexStats = {
     notes: notes.length,

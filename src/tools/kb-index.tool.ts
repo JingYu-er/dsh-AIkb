@@ -65,7 +65,7 @@ function failedReport(vaultRoot: string, error: unknown): IndexReport & { error:
     vaultRoot,
     written: false,
     index: 'index.md',
-    stats: { notes: 0, byType: { concept: 0, thought: 0, source: 0, moc: 0, draft: 0, unknown: 0 }, orphans: 0, brokenLinks: 0, untyped: 0, inbox: 0 },
+    stats: { notes: 0, byType: { concept: 0, thought: 0, source: 0, reference: 0, log: 0, moc: 0, draft: 0, unknown: 0 }, orphans: 0, brokenLinks: 0, untyped: 0, inbox: 0 },
     preview: '',
     warnings: [],
     elapsedMs: 0,

@@ -43,7 +43,7 @@ test('scanVault counts types, inbound links, orphans and broken links', async ()
   try {
     const scan = await scanVault(new NodeNotesFs(root), root);
     assert.equal(scan.stats.notes, 6);
-    assert.deepEqual(scan.stats.byType, { concept: 2, thought: 2, source: 0, moc: 0, draft: 1, unknown: 1 });
+    assert.deepEqual(scan.stats.byType, { concept: 2, thought: 2, source: 0, reference: 0, log: 0, moc: 0, draft: 1, unknown: 1 });
     assert.equal(scan.stats.inbox, 1);
     assert.equal(scan.stats.untyped, 1);
     assert.equal(scan.stats.brokenLinks, 1);

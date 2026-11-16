@@ -58,9 +58,13 @@ export function judgeDirection(from: SchemaNoteType, to: SchemaNoteType): Direct
   const label = from + '→' + to;
   if (from === 'draft') return { allowed: false, label, warning: 'draft 只存在于 inbox，提升为正式笔记后再建链' };
   if (from === 'source' && to === 'source') return { allowed: false, label, warning: 'SCHEMA 禁止 source→source' };
+  if (from === 'reference' && to === 'reference') return { allowed: false, label, warning: 'SCHEMA 禁止 reference→reference（速查页之间不互链）' };
   if (from === 'moc') return { allowed: true, label };
   if (from === 'thought' && to === 'thought') return { allowed: true, label, warning: 'thought→thought 是同层链接，需说明判断关系' };
-  if (from === 'thought' && (to === 'concept' || to === 'source')) return { allowed: true, label };
+  if (from === 'thought' && (to === 'concept' || to === 'source' || to === 'reference')) return { allowed: true, label };
+  if (from === 'log' && to === 'log') return { allowed: true, label, warning: 'log→log 是时间线续接，确认确有关联' };
+  if (from === 'log' && (to === 'concept' || to === 'source' || to === 'reference')) return { allowed: true, label };
+  if (from === 'reference') return { allowed: true, label, warning: 'reference 是速查页，通常只作为链接目标' };
   if (from === 'concept' && to === 'concept') return { allowed: true, label, warning: 'concept→concept 需确认上下位关系' };
   if (from === 'source') return { allowed: true, label, warning: 'SCHEMA 只允许 thought/moc 作为链接起点，请确认' };
   return { allowed: true, label, warning: '方向未在 SCHEMA 中明确，需确认' };
