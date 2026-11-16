@@ -8,13 +8,16 @@ window.__ModuleLoader__.load({
     var ID = 'dsh-kb';
     var SRC = 'http://127.0.0.1:7317/';
 
-    function KbBody() {
+    function KbBody(props) {
+      // The tab is opened for a file; its address lets the server find the nearest .dsh-kb.json.
+      var address = (props && (props.address || props.path || props.file)) || '';
+      var src = address === '' ? SRC : SRC + '?address=' + encodeURIComponent(address);
       return React.createElement('div', { style: { display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 } },
         React.createElement('div', { style: { padding: '8px 12px', borderBottom: '1px solid #2a2e36', fontSize: 12, color: '#8b96a8' } },
-          'dsh-kb · 本地索引 ',
-          React.createElement('a', { href: SRC, target: '_blank', rel: 'noreferrer', style: { color: '#9cc7ff' } }, SRC)),
+          'dsh-kb · ', address === '' ? '默认库' : address,
+          ' ', React.createElement('a', { href: SRC, target: '_blank', rel: 'noreferrer', style: { color: '#9cc7ff' } }, '打开')),
         React.createElement('iframe', {
-          src: SRC,
+          src: src,
           title: 'dsh-kb',
           style: { flex: 1, width: '100%', border: '0', background: '#14161a' },
         }));
