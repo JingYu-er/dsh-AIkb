@@ -1,6 +1,6 @@
 {
   "name": "dsh-kb",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
   "description": "Obsidian-native knowledge base for DeepSeek Harness: a compiler, not a retriever.",
   "license": "MIT",
