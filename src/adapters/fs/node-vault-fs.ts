@@ -34,6 +34,28 @@ export class NodeVaultFs implements DoctorVaultFs {
     return out;
   }
 
+  /** Direct files of one directory, dot-directories included: the index is under .wiki/. */
+  async listDir(relDir: string): Promise<readonly DoctorEntry[]> {
+    const out: DoctorEntry[] = [];
+    const absoluteDir = this.absolute(relDir);
+    let names;
+    try {
+      names = await fsPromises.readdir(absoluteDir, { withFileTypes: true });
+    } catch {
+      return out;
+    }
+    for (const entry of names) {
+      if (!entry.isFile()) continue;
+      try {
+        const stat = await fsPromises.stat(nodePath.join(absoluteDir, entry.name));
+        out.push({ relPath: relDir + '/' + entry.name, bytes: stat.size, modifiedAt: stat.mtime.toISOString() });
+      } catch {
+        continue;
+      }
+    }
+    return out;
+  }
+
   async sha256File(relPath: string): Promise<string> {
     const hash = createHash('sha256');
     await new Promise<void>((resolve, reject) => {

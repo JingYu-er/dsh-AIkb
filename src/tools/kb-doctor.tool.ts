@@ -72,6 +72,23 @@ const OUTPUT_SCHEMA: SchemaNode = {
       properties: {},
       description: 'File counts keyed by lower-case extension (md, pdf, png, ...).',
     },
+    index: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        cacheBytes: { type: 'integer', required: true },
+        cacheModifiedAt: { type: 'string', required: true },
+        catalogSources: { type: 'integer', required: true },
+        catalogChunks: { type: 'integer', required: true },
+        chunkFiles: { type: 'integer', required: true },
+        orphanChunkFiles: { type: 'integer', required: true },
+        missingChunkFiles: { type: 'integer', required: true },
+        emptySources: { type: 'integer', required: true },
+        vectorFiles: { type: 'integer', required: true },
+        missingVectors: { type: 'integer', required: true },
+        staleVectors: { type: 'integer', required: true },
+      },
+    },
     python: {
       type: 'object',
       additionalProperties: false,

@@ -81,6 +81,14 @@ export interface IngestReport {
       readonly downloaded: boolean;
     };
   };
+  /** Vector pass run after this ingest; absent when embedding is off or nothing new was ingested. */
+  readonly embed?: {
+    readonly books: number;
+    readonly chunks: number;
+    readonly upToDate: number;
+    readonly elapsedMs: number;
+    readonly error?: string;
+  };
   /** Bilingual vocabulary learned from this run; feeds query expansion on the next search. */
   readonly glossary?: {
     readonly entries: number;

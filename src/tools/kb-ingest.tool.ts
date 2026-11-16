@@ -6,11 +6,13 @@ import { NodeVaultWriter } from '../adapters/fs/node-vault-writer.js';
 import { ocrJournalPath, ocrPdf } from '../adapters/pdf/ocr.js';
 import type { OcrEnvReport } from '../adapters/pdf/ocr-env.js';
 import type { OcrModelReport } from '../adapters/pdf/ocr-model.js';
+import type { EmbeddingEnvReport } from '../adapters/embeddings/embedding-env.js';
 import { extractPdf } from '../adapters/pdf/pymupdf.js';
 import type { PythonEnvReport } from '../adapters/pdf/python-env.js';
 import { emptyIngestReport, runIngest } from '../application/kb-ingest.js';
 import type { ExtractedBook, IngestEntry, IngestReport } from '../application/kb-ingest.js';
 import { DomainError } from '../shared/result.js';
+import { runEmbedPass } from './embed-runner.js';
 import type { SchemaNode } from './definition.js';
 import { defineTool } from './definition.js';
 
@@ -34,6 +36,10 @@ export interface KbIngestDeps {
   readonly prepareOcr?: () => Promise<OcrEnvReport>;
   /** Resolves the PP-OCRv4 recognizer; absent keeps RapidOCR's bundled v3 graph. */
   readonly prepareOcrModel?: () => Promise<OcrModelReport>;
+  /** Resolves the e5 model; when present (and autoEmbed is not false) new books are embedded in the same call. */
+  readonly prepareEmbedding?: () => Promise<EmbeddingEnvReport>;
+  /** Set false to leave embedding to an explicit kb_embed call. */
+  readonly autoEmbed?: boolean;
   readonly ocrWorkers: number;
   /** Page cap per book for the first OCR experiment; absent means the whole book. */
   readonly ocrMaxPages?: number;
@@ -95,6 +101,17 @@ const OUTPUT_SCHEMA: SchemaNode = {
         added: { type: 'integer', required: true },
       },
     },
+    embed: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        books: { type: 'integer', required: true },
+        chunks: { type: 'integer', required: true },
+        upToDate: { type: 'integer', required: true },
+        elapsedMs: { type: 'integer', required: true },
+        error: { type: 'string' },
+      },
+    },
     books: {
       type: 'array',
       required: true,
@@ -143,6 +160,10 @@ function renderReport(report: IngestReport): string {
   }
   if (report.glossary !== undefined) {
     lines.push('glossary: ' + report.glossary.entries + ' term pair(s), ' + report.glossary.added + ' new');
+  }
+  if (report.embed !== undefined) {
+    lines.push('embed: ' + report.embed.books + ' book(s), ' + report.embed.chunks + ' chunk(s) in ' + report.embed.elapsedMs + ' ms'
+      + (report.embed.error === undefined ? '' : ' — ' + report.embed.error));
   }
   lines.push('ingested ' + report.totals.books + ' book(s): ' + report.totals.pages + ' pages, ' + report.totals.chunks + ' chunks, ~' + report.totals.tokens + ' tokens');
   for (const book of report.books.slice(0, 10)) {
@@ -247,10 +268,36 @@ export function createKbIngestTool(deps: KbIngestDeps) {
             ...(ocr !== undefined ? { ocr } : {}),
           },
         );
+        let embed: IngestReport['embed'];
+        const fresh = report.books.some((book) => book.error === undefined && !book.skipped);
+        if (deps.prepareEmbedding !== undefined && deps.autoEmbed !== false && report.ok && fresh) {
+          try {
+            const pass = await runEmbedPass(
+              {
+                resolveRoot: deps.resolveRoot,
+                workspaceRoot: () => deps.workspaceRoot,
+                allowWrites: () => deps.allowWrites,
+                prepareEmbedding: deps.prepareEmbedding,
+              },
+              { vaultPath: root, onlyShas: report.books.filter((book) => book.error === undefined && !book.skipped).map((book) => book.sha256) },
+            );
+            embed = {
+              books: pass.totals.books,
+              chunks: pass.totals.chunks,
+              upToDate: pass.totals.upToDate,
+              elapsedMs: pass.elapsedMs,
+              ...(pass.ok ? {} : { error: pass.error?.message ?? 'embedding failed' }),
+            };
+          } catch (error) {
+            // A failed embed pass must not fail the ingest: the text index is already written.
+            embed = { books: 0, chunks: 0, upToDate: 0, elapsedMs: 0, error: error instanceof Error ? error.message : String(error) };
+          }
+        }
         return {
           ...report,
           python: { pythonPath: python.pythonPath, source: python.source, venvPath: python.venvPath, bootstrapped: python.bootstrapped },
           ...(ocrInfo !== undefined ? { ocr: ocrInfo } : {}),
+          ...(embed !== undefined ? { embed } : {}),
         };
       } catch (error) {
         return emptyIngestReport(root, error);

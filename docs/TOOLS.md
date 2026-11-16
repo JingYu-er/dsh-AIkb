@@ -18,7 +18,9 @@ Output: `ok`, `error` (code + message), `checks[]` (`.obsidian`, `notes`,
 `sources`, `versioning`, `manifest`, `python.pymupdf`), `counts` (notes, sources,
 attachments), `byExtension`, `layout` (inbox / .wiki / books.jsonl presence),
 `booksManifest` (entries, bytes), `python` (`ok`, `pythonPath`, `source`
-configured|venv|system, `venvPath`, `pymupdfVersion`, `errors`), `writesEnabled`,
+configured|venv|system, `venvPath`, `pymupdfVersion`, `errors`), `index` (cache
+size and mtime, catalog vs chunk files, orphan/missing chunk files, empty
+sources, vector sidecars and how many books are missing or stale), `writesEnabled`,
 `versionControl`, `nextActions`.
 
 The Python section is a **probe only**: a missing interpreter is reported as a
@@ -81,7 +83,10 @@ Output: `ok`, `books[]` (`path`, `sha256`, `pages`, `chunks`, `tokens`,
 `status`, `ocrUsed?`, `error?`), `totals`, `indexPath`, `elapsedMs`, `python`
 (`pythonPath`, `source`, `venvPath`, `bootstrapped`), when OCR was resolved
 `ocr` (`pythonPath`, `rapidocrVersion`, `installed`, `model` with `path` and
-`downloaded`), and `glossary`
+`downloaded`), when embedding is on and books were written `embed` (`books`,
+`chunks`, `upToDate`, `elapsedMs`, `error?`) — the vector pass runs in the same
+call, so a new book is searchable by BM25 and vectors without a second call
+(`embedOnIngest: false` opts out) — and `glossary`
 (`entries`, `added`). The glossary is a per-vault by-product: bilingual pairs
 harvested from the page text ("静态工作点 (quiescent operating point)") are merged
 into `.wiki/index/glossary.json`, capped at 4,000 entries and ranked by how many

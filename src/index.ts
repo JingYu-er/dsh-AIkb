@@ -58,6 +58,8 @@ export interface KbPluginConfig {
   readonly ocrModelUrl?: string;
   /** Local embeddings for hybrid search. On by default; kb_embed builds them on demand. */
   readonly embedEnabled?: boolean;
+  /** Embed newly ingested books in the same kb_ingest call. Default true; false leaves it to kb_embed. */
+  readonly embedOnIngest?: boolean;
   /** Directory holding tokenizer.json + model_quantized.onnx. Default <workspaceRoot>/.kb/models/multilingual-e5-small. */
   readonly embedModelDir?: string;
   /** Base URL the ONNX files are fetched from on first use. Default: hf-mirror. */
@@ -234,6 +236,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
         ocrWorkers: config.ocrWorkers !== undefined && config.ocrWorkers > 0 ? config.ocrWorkers : 4,
         ...(config.ocrEnabled === false ? {} : { prepareOcr: () => ocrEnv(), prepareOcrModel: () => ocrModel() }),
         ...(config.ocrMaxPages !== undefined ? { ocrMaxPages: config.ocrMaxPages } : {}),
+        ...(embedEnabled ? { prepareEmbedding: () => embeddingEnv(), autoEmbed: config.embedOnIngest !== false } : {}),
       }),
     );
     registerTool(
@@ -255,7 +258,6 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
         workspaceRoot: () => workspaceRoot,
         allowWrites: () => allowWrites,
         prepareEmbedding: () => embeddingEnv(),
-        vectorsDir: '.wiki/index/vectors',
       }),
     );
   } catch (error) {

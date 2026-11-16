@@ -13,11 +13,11 @@ MVP read path and the compile loop are implemented and tested (87 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
-| `kb_doctor` | Vault discovery, layout and permission self-check. |
+| `kb_doctor` | Vault discovery, layout and permission self-check; index health (cache age, chunk files vs catalog, vector coverage). |
 | `kb_inventory` | Hash-index every binary source into `.wiki/books.jsonl`. |
 | `kb_ingest` | Page-anchored chunking + incremental local index; also harvests bilingual term pairs into `.wiki/index/glossary.json`. |
 | `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, device-name scoping, coverage weighting, chapter weighting, edition-family cap). Returns optional page windows and section context; hybrid vectors fill the tail slots. |
-| `kb_embed` | Local e5-small vectors over the chunk index, incremental per book. |
+| `kb_embed` | Local e5-small vectors over the chunk index, incremental per book. `kb_ingest` runs it for the books it just wrote (`embedOnIngest: false` opts out). |
 | `kb_lint` | Read-only note hygiene: broken wikilinks, duplicate titles, orphan concept pages, missing frontmatter/type. |
 | `kb_compile` | Compile inbox drafts: resolve title/type, lift `sources:` and wikilinks, normalise H1 and blank lines; writes `inbox/_compiled/`, idempotent via `compiledHash`. |
 | `kb_promote` | Promote compiled drafts into the configured `promoteDir` with a line diff; confirm-gated, never overwrites without `force`. |
@@ -318,6 +318,12 @@ Known gaps and measured negative results:
 - Fusing an alternative phrasing (`queries: [...]`) hurt here: zh2 MRR
   0.57 → 0.43, because the paraphrases in the set are weaker than the original.
   Use it per call for known-good synonyms, never as a default.
+- Indexing the headings recovered from page tops (the 73 books without a PDF
+  outline) into the searchable text is **neutral**: zh book@5 20/26 → 19/26,
+  zh2 book@5 11/12 → 12/12, every page metric unchanged. Reverted — the chapter
+  index already picks those headings up through `sectionOf`, so the remaining
+  lever is choosing the right page *inside* the right chapter, not adding
+  headings to the text.
 - A heavier layout extractor (MinerU / Docling) is **not** worth its footprint:
   on the 12-question set's answer pages, 11/12 chunks already contain every
   answer term, and BM25 is insensitive to formula and table layout — the

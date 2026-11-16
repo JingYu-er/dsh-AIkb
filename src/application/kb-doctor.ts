@@ -14,6 +14,8 @@ export interface DoctorVaultFs {
   readText(relPath: string): Promise<string>;
   /** Where version control lives for this vault: the vault itself, an ancestor, or nowhere. */
   versionControl?(): Promise<'vault' | 'ancestor' | undefined>;
+  /** Direct files of one directory, including dot-directories (the index lives under .wiki/). */
+  listDir?(relDir: string): Promise<readonly DoctorEntry[]>;
 }
 
 export type CheckStatus = 'pass' | 'warn' | 'fail';
@@ -58,8 +60,28 @@ export interface DoctorReport {
     readonly bootstrapped: boolean;
     readonly errors: readonly string[];
   };
+  /** Index health: cache file, chunk files vs catalog, vector sidecars. Absent before the first ingest. */
+  readonly index?: DoctorIndex;
   readonly writesEnabled: boolean;
   readonly nextActions: readonly string[];
+}
+
+export interface DoctorIndex {
+  readonly cacheBytes: number;
+  readonly cacheModifiedAt: string;
+  readonly catalogSources: number;
+  readonly catalogChunks: number;
+  readonly chunkFiles: number;
+  /** Chunk files on disk that the catalog no longer lists. */
+  readonly orphanChunkFiles: number;
+  /** Catalog sources with no chunk file (an interrupted ingest). */
+  readonly missingChunkFiles: number;
+  /** Catalog sources whose chunk count is zero. */
+  readonly emptySources: number;
+  readonly vectorFiles: number;
+  readonly missingVectors: number;
+  /** Vector sidecars whose chunk count no longer matches the catalog. */
+  readonly staleVectors: number;
 }
 
 export interface DoctorOptions {
@@ -200,6 +222,74 @@ export async function runDoctor(vaultFs: DoctorVaultFs, options: DoctorOptions):
   });
   if (!manifestPresent) nextActions.push('Build the book inventory at ' + manifestPath + ' before ingesting sources.');
 
+  const indexRel = wikiRel + '/index';
+  let index: DoctorIndex | undefined;
+  if (vaultFs.listDir !== undefined && (await vaultFs.exists(indexRel + '/catalog.json'))) {
+    const catalog = JSON.parse(await vaultFs.readText(indexRel + '/catalog.json')) as { sources?: Record<string, { chunks?: number }> };
+    const sources = catalog.sources ?? {};
+    const shas = Object.keys(sources);
+    const chunkEntries = await vaultFs.listDir(indexRel + '/chunks');
+    const vectorEntries = await vaultFs.listDir(indexRel + '/vectors');
+    const indexEntries = await vaultFs.listDir(indexRel);
+    const baseNameOf = (relPath: string): string => relPath.slice(relPath.lastIndexOf('/') + 1);
+    const chunkShas = new Set(chunkEntries.filter((file) => file.relPath.endsWith('.jsonl')).map((file) => baseNameOf(file.relPath).replace(/\.jsonl$/, '')));
+    const vectorShas = new Set(vectorEntries.filter((file) => file.relPath.endsWith('.json')).map((file) => baseNameOf(file.relPath).replace(/\.json$/, '')));
+    const cache = indexEntries.find((file) => file.relPath.endsWith('/search-cache.bin'));
+    const cacheBytes = cache?.bytes ?? 0;
+    const cacheModifiedAt = cache?.modifiedAt ?? '';
+    let catalogChunks = 0;
+    let missingChunkFiles = 0;
+    let emptySources = 0;
+    let missingVectors = 0;
+    let staleVectors = 0;
+    for (const sha of shas) {
+      const chunks = sources[sha]?.chunks ?? 0;
+      catalogChunks += chunks;
+      if (!chunkShas.has(sha)) missingChunkFiles += 1;
+      if (chunks === 0) emptySources += 1;
+      if (!vectorShas.has(sha)) {
+        missingVectors += 1;
+        continue;
+      }
+      try {
+        const meta = JSON.parse(await vaultFs.readText(indexRel + '/vectors/' + sha + '.json')) as { count?: number };
+        if (typeof meta.count === 'number' && meta.count !== chunks) staleVectors += 1;
+      } catch {
+        staleVectors += 1;
+      }
+    }
+    const orphanChunkFiles = [...chunkShas].filter((sha) => !(sha in sources)).length;
+    index = {
+      cacheBytes, cacheModifiedAt, catalogSources: shas.length, catalogChunks,
+      chunkFiles: chunkShas.size,
+      orphanChunkFiles,
+      missingChunkFiles, emptySources,
+      vectorFiles: vectorShas.size, missingVectors, staleVectors,
+    };
+    checks.push({
+      id: 'index.cache',
+      status: cacheBytes > 0 ? 'pass' : 'warn',
+      detail: cacheBytes > 0
+        ? Math.round(cacheBytes / 1048576) + ' MiB search cache, last written ' + cacheModifiedAt
+        : 'no search cache yet: the first query rebuilds the index from chunk files',
+    });
+    checks.push({
+      id: 'index.vectors',
+      status: missingVectors === 0 && staleVectors === 0 ? 'pass' : 'warn',
+      detail: missingVectors === 0 && staleVectors === 0
+        ? vectorShas.size + ' books embedded'
+        : missingVectors + ' book(s) without vectors, ' + staleVectors + ' stale; run kb_embed to catch up',
+    });
+    if (missingChunkFiles > 0 || orphanChunkFiles > 0) {
+      checks.push({
+        id: 'index.chunks',
+        status: 'warn',
+        detail: missingChunkFiles + ' catalog source(s) without a chunk file, ' + orphanChunkFiles + ' orphan chunk file(s)',
+      });
+    }
+    if (missingVectors > 0) nextActions.push('Run kb_embed to embed ' + missingVectors + ' book(s) so hybrid search can use them.');
+  }
+
   checks.push({
     id: 'guards.writes',
     status: options.allowWrites ? 'warn' : 'pass',
@@ -217,6 +307,7 @@ export async function runDoctor(vaultFs: DoctorVaultFs, options: DoctorOptions):
     byExtension,
     layout: { inbox, wiki, git },
     booksManifest: { path: manifestPath, present: manifestPresent, entries: manifestEntries },
+    ...(index !== undefined ? { index } : {}),
     writesEnabled: options.allowWrites,
     nextActions,
   };
