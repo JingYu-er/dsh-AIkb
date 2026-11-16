@@ -73,7 +73,7 @@ kb_query({ "query": "稳压管 稳压电路 限流电阻 计算",
 
 ## 4. 判读：先看窗口，再看摘录
 
-- `section` 是这一页所属章节；`pageEnd > page` 时，`p.N–M` 就是可用的章节窗口。
+- `section` 是**章标题**（续页也会带上）；`pageStart..pageEnd` 是这一章覆盖的页区间，`page` 只是"入口页"。引用写 `p.N` 或 `p.N–M`（用 pageStart/pageEnd），不要声称 page 就是答案所在的那一页。
 - 只对最好的 1–2 条加 `expand: "section"`（配 `maxContextChars: 3000`）；不要 8 条全展开。
 - 可信度顺序：多个 query 词同页命中 > 单 query 高 score > 只有向量补位 > 目录/前言页。
 - 以下命中要降级并换词重查：
@@ -92,7 +92,7 @@ kb_query({ "query": "稳压管 稳压电路 限流电阻 计算",
 
 ## 6. 回答格式
 
-- 每条事实后跟 `path p.N`，跨页写 `p.N–M`；路径用 hits 返回的原样路径。
+- 每条事实后跟 `path p.N`，跨页写 `p.N–M`（取 pageStart–pageEnd）；路径用 hits 返回的原样路径。需要精确核对原文时，打开该页而不是猜邻近页。
 - 引用原文控制在 1–2 句，不整段搬运。
 - 分开写「书里的结论」与「据此推断」；推断不要挂页码。
 - 不引用没出现在 hits 里的页码；不把 OCR 文本当原文公式照抄。
@@ -101,7 +101,7 @@ kb_query({ "query": "稳压管 稳压电路 限流电阻 计算",
 ## 7. 工具速查
 
 - `kb_query({ query, queries?, topK = 8, expand = 'none'|'page'|'section', maxContextChars = 3000, rerank = false, rerankBlend = 0.3, vaultPath? })`
-  - 返回 `hits[].path/page/pageEnd/section/score/excerpt/context`、`searched.{sources,chunks,vectors,families,queries}`、`retrieval`、`reranked`。
+  - 返回 `hits[].path/page/pageStart/pageEnd/section/score/excerpt/context`、`searched.{sources,chunks,vectors,families,queries}`、`retrieval`、`reranked`。`section` 是章标题，`page` 是章内入口页。
 - `kb_inventory`：入库清单与哈希，确认「有没有这本书」。
 - `kb_doctor`：库结构、写权限、索引与清单状态。
 - 性能：索引在进程内缓存，大库首查约 6 s（181 本 / 27k 块），之后约 0.4 s；多查两轮不贵。`rerank: true` 每查约 +1.5–2 s（首次另加模型加载约 5 s）。

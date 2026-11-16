@@ -283,9 +283,12 @@ so old corpora get them without re-ingesting a single PDF.
 Known gaps and measured negative results:
 
 - Page drift inside the right book is the dominant error: the content is in the
-  right chapter, the page is 5–30 off. Section windows (`expand: "section"`) exist
-  for this; headings are recovered from page text for the 73 books without a PDF
-  outline (the three OCR'd textbooks among them).
+  right chapter, the page is 5–30 off. The contract is therefore **book +
+  chapter + page range**: `section` is the chapter title even on continuation
+  pages, `pageStart`/`pageEnd` bound it, and `page` is just the entry page. Cite
+  `p.N–M` and open the page when the exact wording matters; section windows
+  (`expand: "section"`) exist for that. Headings are recovered from page text for
+  the 73 books without a PDF outline (the three OCR'd textbooks among them).
 - Harvested bilingual pairs (`.wiki/index/glossary.json`) are **not** used to
   widen queries by default. On this 26-question set, expanding with all 4,000
   pairs lost five page hits (11/26 → 7/26): datasheet tables teach wrong pairs

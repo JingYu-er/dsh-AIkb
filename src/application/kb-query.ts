@@ -68,8 +68,11 @@ export interface QueryOptions {
 export interface QueryHit {
   readonly path: string;
   readonly page: number;
+  /** First page of the chapter the hit belongs to, when it starts before `page`. */
+  readonly pageStart?: number;
   /** Last page of the chapter the hit belongs to, when the book has headings. */
   readonly pageEnd?: number;
+  /** Chapter title; the contract is "book + chapter + page range", not an exact page. */
   readonly section?: string;
   readonly score: number;
   readonly excerpt: string;
@@ -742,13 +745,19 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     const item = snapshot.byId.get(hit.id);
     const stored = item?.chunk;
     const chapter = item === undefined || item.chapter < 0 ? undefined : snapshot.chapters[item.chapter];
+    const pageStart = chapter !== undefined && stored !== undefined && chapter.start < stored.page ? chapter.start : undefined;
     const pageEnd = chapter !== undefined && stored !== undefined && chapter.end > stored.page ? chapter.end : undefined;
-    const section = item !== undefined && item.section !== '' ? item.section : undefined;
+    // The chapter title names the section even on a continuation page that carries no heading of
+    // its own; the pages below the hit still belong to that chapter, hence the range.
+    const section = chapter !== undefined && chapter.title !== ''
+      ? chapter.title
+      : (item !== undefined && item.section !== '' ? item.section : undefined);
     return {
       path: item?.path ?? '',
       page: stored?.page ?? 0,
       score: Number(hit.score.toFixed(5)),
       excerpt: (stored?.text ?? '').slice(0, EXCERPT_LENGTH),
+      ...(pageStart === undefined ? {} : { pageStart }),
       ...(pageEnd === undefined ? {} : { pageEnd }),
       ...(section === undefined ? {} : { section }),
       ...(expand === 'none' ? {} : { context: contextOf(snapshot, item, expand, maxContextChars) }),

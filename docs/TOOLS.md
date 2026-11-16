@@ -163,9 +163,11 @@ from 0.20 to 0.22, but left page@5 at 11/26 and dropped the 12-question set from
 already counted twice — in the document weight above and in the returned window —
 so a third copy over-rewards long chapters.
 
-`expand: "section"` returns the whole contiguous chapter as `context` (broken at
-`maxContextChars`, 3,000 by default) plus `pageEnd` when the chapter spans
-several pages; `expand: "page"` returns every chunk of the hit page. Queries do
+`section` is the chapter title (a continuation page carries it too) and
+`pageStart`/`pageEnd` bound that chapter, so a citation is `p.N–M` while `page`
+is only the entry page inside it. `expand: "section"` returns the whole
+contiguous chapter as `context` (broken at `maxContextChars`, 3,000 by default);
+`expand: "page"` returns every chunk of the hit page. Queries do
 not use the harvested glossary unless the plugin config sets
 `glossaryExpansion: true`; on the 26-question set the full harvested list cost
 five page hits, frequency-gated pairs were neutral.
@@ -229,7 +231,7 @@ single-query path (and `searched.queries` is then absent).
 
 Input: `{ query: string, queries?: string[], topK?: number, expand?: "none" | "page" | "section", maxContextChars?: number, rerank?: boolean, rerankBlend?: number, vaultPath?: string }`
 
-Output: `hits[]` (`path`, `page`, `pageEnd?`, `section?`, `score`, `excerpt`,
+Output: `hits[]` (`path`, `page`, `pageStart?`, `pageEnd?`, `section?`, `score`, `excerpt`,
 `context?`), `searched` (`sources`, `chunks`, `vectors` when hybrid, `families`
 when edition families were detected, `queries` when phrasings were fused),
 `retrieval` (`"bm25"` or `"hybrid"`; remains `"bm25"` for a fused list),

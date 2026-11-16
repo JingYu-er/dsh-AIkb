@@ -84,6 +84,7 @@ const OUTPUT_SCHEMA: SchemaNode = {
         properties: {
           path: { type: 'string', required: true },
           page: { type: 'integer', required: true },
+          pageStart: { type: 'integer' },
           pageEnd: { type: 'integer' },
           section: { type: 'string' },
           score: { type: 'number', required: true },
@@ -176,7 +177,8 @@ function renderReport(report: QueryReport): string {
   const coverage = report.coverage === undefined ? '' : ' | coverage ' + report.coverage.toFixed(2);
   lines.push('query: ' + report.query + ' | ' + report.searched.chunks + ' chunks from ' + report.searched.sources + ' sources | ' + mode + coverage + ' | ' + report.elapsedMs + ' ms');
   report.hits.forEach((hit, index) => {
-    const pages = hit.pageEnd === undefined ? ' p.' + hit.page : ' p.' + hit.page + '-' + hit.pageEnd;
+    const from = hit.pageStart ?? hit.page;
+    const pages = hit.pageEnd === undefined || hit.pageEnd <= from ? ' p.' + from : ' p.' + from + '-' + hit.pageEnd;
     lines.push('[' + (index + 1) + '] ' + hit.path + pages + (hit.section ? ' §' + hit.section : '') + ' (' + hit.score + ')');
     lines.push(hit.excerpt.replace(/\s+/g, ' '));
     if (hit.context !== undefined && hit.context !== '') lines.push('--- context ---' + LINE_FEED + hit.context);
