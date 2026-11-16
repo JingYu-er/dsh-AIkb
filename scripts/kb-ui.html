@@ -48,9 +48,10 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
 </main>
 <script>
 var NL=String.fromCharCode(10);
+window.onerror=function(m,src,line,col){var s=document.getElementById("status");if(s){s.textContent="脚本错误: "+m+" @"+line+":"+col;s.style.color="#d98a8a"}};
 var notes=[],current="",expanded={},tree=null,currentMtime=0,dCur={kind:"",path:""};
 var byId={};
-["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","t-notes","t-search","t-drafts"].forEach(function(id){byId[id]=document.getElementById(id)});
+["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","t-notes","t-search","t-drafts"].forEach(function(id){byId[id]=document.getElementById(id)});
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
 function build(list){var root={dirs:{},files:[]};list.forEach(function(p){var parts=p.split("/");var name=parts.pop();var node=root;parts.forEach(function(d){node.dirs[d]=node.dirs[d]||{dirs:{},files:[]};node=node.dirs[d]});node.files.push({name:name,path:p})});return root}
 function expandAncestors(path){var parts=path.split("/");parts.pop();var acc="";parts.forEach(function(d){acc=acc===""?d:acc+"/"+d;expanded[acc]=true})}

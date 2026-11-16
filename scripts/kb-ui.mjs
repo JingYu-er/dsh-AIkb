@@ -147,7 +147,7 @@ const { runQuery } = await import('../dist/application/kb-query.js');
 
 const createUiServer = () => createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
-  const send = (code, type, body) => { res.writeHead(code, { 'content-type': type }); res.end(body); };
+  const send = (code, type, body) => { res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' }); res.end(body); };
   try {
     if (url.pathname === '/') return send(200, 'text/html; charset=utf-8', page());
     if (url.pathname === '/api/query') {
