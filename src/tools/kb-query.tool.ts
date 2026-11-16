@@ -25,6 +25,10 @@ export interface KbQueryArgs {
   readonly rerankBlend?: number;
   /** Extra phrasings of the same question; each is searched on its own and the lists are fused by rank. */
   readonly queries?: readonly string[];
+  /** Also search the vault's markdown notes at query time and merge them in as kind: 'note'. Off by default. */
+  readonly notesLayer?: boolean;
+  /** How many note hits the notes layer contributes (default 5). */
+  readonly notesLimit?: number;
 }
 
 /**
@@ -83,6 +87,7 @@ const OUTPUT_SCHEMA: SchemaNode = {
         additionalProperties: false,
         properties: {
           path: { type: 'string', required: true },
+          kind: { type: 'string' },
           page: { type: 'integer', required: true },
           pageStart: { type: 'integer' },
           pageEnd: { type: 'integer' },
@@ -179,7 +184,7 @@ function renderReport(report: QueryReport): string {
   report.hits.forEach((hit, index) => {
     const from = hit.pageStart ?? hit.page;
     const pages = hit.pageEnd === undefined || hit.pageEnd <= from ? ' p.' + from : ' p.' + from + '-' + hit.pageEnd;
-    lines.push('[' + (index + 1) + '] ' + hit.path + pages + (hit.section ? ' §' + hit.section : '') + ' (' + hit.score + ')');
+    lines.push('[' + (index + 1) + '] ' + hit.path + pages + (hit.section ? ' §' + hit.section : '') + (hit.kind === 'note' ? ' (note)' : '') + ' (' + hit.score + ')');
     lines.push(hit.excerpt.replace(/\s+/g, ' '));
     if (hit.context !== undefined && hit.context !== '') lines.push('--- context ---' + LINE_FEED + hit.context);
   });
@@ -213,6 +218,14 @@ export function createKbQueryTool(deps: KbQueryDeps) {
         type: 'array',
         items: { type: 'string' },
         description: 'Optional extra phrasings of the same question (Chinese, English, an abbreviation, a device name). Each is searched separately and the results are fused by rank, so one bad phrasing cannot win; prefer this over calling kb_query twice. Up to 5 extra (6 total).',
+      },
+      notesLayer: {
+        type: 'boolean',
+        description: "Also search the vault's markdown notes (frontmatter stripped, one chunk per heading) with BM25 and merge the matches into the hit list as kind: 'note'. Books keep their own ranking; notes interleave by normalised score. Off by default: the compiled PDF/EPUB index is unchanged.",
+      },
+      notesLimit: {
+        type: 'integer',
+        description: 'How many note hits the notes layer contributes (default 5). Only used when notesLayer is true.',
       },
     },
     output: { schema: OUTPUT_SCHEMA, render: (_args, report) => [{ type: 'text', text: renderReport(report) }] },
@@ -253,6 +266,8 @@ export function createKbQueryTool(deps: KbQueryDeps) {
           ...(rerank === undefined ? {} : { rerank }),
           ...(args.rerankBlend === undefined ? {} : { rerankBlend: args.rerankBlend }),
           ...(extraQueries.length === 0 ? {} : { queries: extraQueries }),
+          ...(args.notesLayer === undefined ? {} : { notesLayer: args.notesLayer }),
+          ...(args.notesLimit === undefined ? {} : { notesLimit: args.notesLimit }),
         };
         // Reranking supersedes the vector tail slots: the cross-encoder compares the query with each
         // passage directly, so spending 1-2 s on a query embedding and then ignoring its hits is waste.

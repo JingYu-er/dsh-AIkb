@@ -9,12 +9,15 @@ import type { FamilyAssignment } from '../domain/family.js';
 import { chunkQuality } from '../domain/quality.js';
 import { headingFromText } from '../domain/section.js';
 import { tokenize } from '../domain/text.js';
+import { searchNotes } from './notes-layer.js';
 import { chunkFileOf, INDEX_CATALOG_PATH } from './kb-ingest.js';
 
 export interface QueryFs {
   readonly root: string;
   exists(relPath: string): Promise<boolean>;
   readText(relPath: string): Promise<string>;
+  /** Optional: the notes layer lists markdown files at query time. */
+  listFiles?(): Promise<readonly { readonly relPath: string; readonly bytes: number; readonly modifiedAt: string }[]>;
   /** Optional: the index cache is stored as a binary blob under .wiki/index/. */
   readBinary?(relPath: string): Promise<Uint8Array>;
   writeBinary?(relPath: string, data: Uint8Array): Promise<void>;
@@ -69,11 +72,21 @@ export interface QueryOptions {
    * BM25 score into the rerank score, so an exact lexical page is not displaced by a fluent one.
    */
   readonly rerankBlend?: number;
+  /**
+   * Also search the vault's markdown notes at query time and merge the best matches into the
+   * result list (kind: 'note'). Off by default: callers that only want book pages keep the
+   * old shape and latency.
+   */
+  readonly notesLayer?: boolean;
+  /** How many note hits the notes layer contributes (default 5). */
+  readonly notesLimit?: number;
 }
 
 export interface QueryHit {
   readonly path: string;
   readonly page: number;
+  /** 'note' marks a query-time note hit; book hits leave it absent. */
+  readonly kind?: 'note';
   /** First page of the chapter the hit belongs to, when it starts before `page`. */
   readonly pageStart?: number;
   /** Last page of the chapter the hit belongs to, when the book has headings. */
@@ -770,7 +783,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
 
   const expand = options.expand ?? 'none';
   const maxContextChars = options.maxContextChars ?? DEFAULT_CONTEXT_CHARS;
-  const hits: QueryHit[] = selected.map((hit) => {
+  const bookHits: QueryHit[] = selected.map((hit) => {
     const item = snapshot.byId.get(hit.id);
     const stored = item?.chunk;
     const chapter = item === undefined || item.chapter < 0 ? undefined : snapshot.chapters[item.chapter];
@@ -792,6 +805,38 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
       ...(expand === 'none' ? {} : { context: contextOf(snapshot, item, expand, maxContextChars) }),
     };
   });
+
+  // Query-time notes layer: BM25 over the vault's markdown notes, computed fresh from the vault
+  // (books stay untouched, so their page citations and ranking are unchanged). Notes interleave
+  // with book hits by normalised score rather than being appended: a note can be the exact
+  // answer, and appending would bury it below every book page at topK<=5.
+  let hits: QueryHit[] = bookHits;
+  if (options.notesLayer === true) {
+    const notes = await searchNotes(fs, queryText, options.notesLimit ?? 5);
+    if (notes.length > 0) {
+      const bookMax = Math.max(0, ...bookHits.map((hit) => hit.score));
+      const noteMax = notes[0]?.score ?? 0;
+      const merged: { hit: QueryHit; norm: number }[] = bookHits.map((hit) => ({
+        hit,
+        norm: bookMax > 0 ? hit.score / bookMax : 0,
+      }));
+      for (const note of notes) {
+        merged.push({
+          hit: {
+            path: note.path,
+            page: note.page,
+            score: Number(note.score.toFixed(5)),
+            excerpt: note.excerpt,
+            kind: 'note',
+            ...(note.section === undefined ? {} : { section: note.section }),
+          },
+          norm: noteMax > 0 ? note.score / noteMax : 0,
+        });
+      }
+      merged.sort((left, right) => right.norm - left.norm);
+      hits = merged.slice(0, topK).map((entry) => entry.hit);
+    }
+  }
   const hybrid = vectorCount > 0 && fused === undefined;
   return {
     ok: true,

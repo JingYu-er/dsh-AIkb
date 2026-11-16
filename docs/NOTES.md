@@ -10,6 +10,93 @@ the decision, and how to reproduce. Benchmarks come from `bench/run.mjs`
 
 ---
 
+## 2026-11-16 — vault notes in retrieval: ingest vs a query-time layer
+
+**Problem.** `kb_query` only searched the 181 indexed PDFs (27,073 chunks). The
+vault's 539 notes were invisible even though the notes are often the fastest
+answer (a derivation, a decision, a summary of a paper). Two ways to fix it:
+make markdown source documents, or search notes at query time and merge them
+into the hits.
+
+**Method.** New `bench/questions-notes.jsonl`: 11 natural Chinese questions whose
+answer is a real note (I2C START/STOP, capacitor dielectrics, Sallen-Key, a
+paper note, convolution, Templater, a journal entry, a book note, LTspice power
+planes, a textbook note), spanning 学习/ 论文/ copilot/ 砖块/ 随记/ 读书/ 项目/.
+`bench/run.mjs --set notes` asks with `topK: 5` and scores hit@5 / MRR by note
+path (`path` equals or ends with the expected path).
+
+**Approach 1 — markdown as sources (reverted).** Add `'md'` to
+`SOURCE_EXTENSIONS` (skip `inbox/`), a `src/adapters/md/markdown.ts` that turns
+each ATX heading section into a "page", and an extractor dispatch in
+`kb-ingest.tool.ts`; notes bypass the scan heuristic. 539 notes → 2,003 chunks
+(266 K tokens, no embedding). Notes: **hit@5 8/11, MRR 0.64**. The note chunks
+join the same BM25 corpus, and the books pay for it:
+
+| set | before (PDF-only index) | after (539 notes ingested) |
+| --- | --- | --- |
+| zh BM25 | page@5 11/26, MRR 0.18 | page@5 10/26, MRR 0.16 |
+| zh rerank | page@5 15/26, MRR 0.28 | page@5 14/26, MRR 0.25 |
+| zh2 BM25 | page@1 6, page@5 9/12, MRR 0.57 | page@1 5, page@5 8/12, MRR 0.53 |
+| zh2 rerank | page@5 8/12, MRR 0.60 | page@5 7/12, MRR 0.51 |
+
+The note itself is a small document: it raises the corpus size and shifts IDF,
+and per-book caps let two chunks of the same note fill top slots (e.g.
+`电容分类.md p.4` twice). Reverted the inventory/doctor/ingest/adapter changes
+and restored the index from `.wiki/index.bak-before-notes`; the 8/11 result is
+what the old index would have given.
+
+**Approach 2 — query-time note layer (kept, off by default).**
+`src/application/notes-layer.ts` chunks every vault `.md` (skipping dot dirs,
+`node_modules`, `inbox/`, `templates`) by heading into ~600-character pieces,
+scores them with the existing BM25 (`src/domain/bm25.ts`, k1 1.5 / b 0.75),
+keeps the best chunk per note and normalises scores to the best note. `kb_query`
+gains `notesLayer` and `notesLimit` (default 5); with the flag on, note hits are
+merged into the book hits by normalised score, each carrying `kind: 'note'`.
+Notes can therefore outrank a vague book page, but book order among themselves
+and the `page` field never change. Without the flag the code path is untouched.
+
+| notes set (11) | hit@5 | MRR | avg |
+| --- | --- | --- | --- |
+| no notes at all | 0/11 | 0.00 | 421 ms |
+| approach 1 (ingest) | 8/11 | 0.64 | 519 ms |
+| approach 2, limit 3 | 8/11 | 0.34 | 486 ms |
+| approach 2, limit 5 | 9/11 | 0.35 | 486 ms |
+
+Approach 2 misses the same two hard cases as approach 1: the Obsidian-CLI
+question returns `TypeScript.md` (BM25 has no idea the question is about a
+skill file under `copilot/`), and the Templater question returns the 54 KB
+root note that mentions every tool. With the layer on, books are displaced
+from the top-K (note hits occupy slots near the front):
+
+| books, layer ON (limit 5) | before | after |
+| --- | --- | --- |
+| zh BM25 | page@5 11/26, MRR 0.18 | page@5 6/26, MRR 0.12 |
+| zh rerank | page@5 15/26, MRR 0.28 | page@5 9/26, MRR 0.20 |
+| zh2 BM25 | page@5 9/12, MRR 0.57 | page@5 7/12, MRR 0.54 |
+| zh2 rerank | page@5 8/12, MRR 0.60 | page@5 7/12, MRR 0.60 |
+
+**Decision.** Keep approach 2 only; `notesLayer` stays **off by default** and
+`notesLimit` defaults to **5**. Ingesting notes trades ~1 book page hit and
+0.02–0.09 MRR permanently, and finds fewer notes than the layer (8 vs 9 of 11).
+The layer costs nothing when off, finds 9/11 when a caller asks for notes, and
+its `kind` field lets a caller keep book and note hits apart. Turning it on is
+a deliberate trade: note recall at the cost of book page@5 (zh 11→6, rerank
+15→9), because normalised note scores place strong note matches near the front.
+Both at once is not worth it — approach 1 is reverted, and with it the note
+corpus no longer competes inside the book index.
+
+**Reproduce.**
+```sh
+node bench/run.mjs --set notes                                  # 0/11
+node bench/run.mjs --set notes --notes-layer --notes-limit 5    # 9/11, MRR 0.35
+node bench/run.mjs --set notes --notes-layer --notes-limit 3    # 8/11, MRR 0.34
+node bench/run.mjs --set zh  --notes-layer --notes-limit 5      # book displacement
+node bench/run.mjs --set zh2 --notes-layer --notes-limit 5
+```
+The index backup used to undo approach 1 stays at
+`.wiki/index.bak-before-notes` (137 MB); `.wiki/books.jsonl` was regenerated
+from the PDF-only inventory (207 entries, 181 ingested).
+
 ## 2026-11-16 — where the drift actually lives (section audit)
 
 **Audit.** 181 books, 22,573 pages. PDF-outline headings cover 16,537 pages; the

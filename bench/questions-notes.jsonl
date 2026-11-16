@@ -1,0 +1,11 @@
+{"q":"I2C 总线上 START 和 STOP 条件分别要求 SDA 在 SCL 的什么电平上怎么跳变？","path":"学习/硬件/通信/IIC.md"}
+{"q":"贴片的 NPO、X7R、Z5U、Y5V 这几种介质在温度范围和老化上有什么区别？","path":"学习/硬件/电路/基本电路/电容分类.md"}
+{"q":"Sallen-Key 低通滤波器怎么用节点电流和虚短推出传递函数？","path":"学习/硬件/笔记/Sallen-Key 低通滤波器.md"}
+{"q":"Obsidian 命令行工具什么时候才必须用，而不是直接改文件？","path":"copilot/skills/obsidian-cli/SKILL.md"}
+{"q":"2021 年 Miao 那篇用激光把二维磁性薄膜变成三维结构的工作，能量收集怎么做的？","path":"论文/笔记/3D 临时磁化软机器人Miao et al..md"}
+{"q":"两个函数在时域卷积，它们的傅里叶变换之间是什么关系？","path":"学习/程序/算法/数学/卷积.md"}
+{"q":"Templater 的笔记属性模板能读哪些 frontmatter 字段？","path":"砖块/Templater/Templater-笔记属性.md"}
+{"q":"那个瑞典人拿中欧路网和步行骑行做的对比，结论是什么？","path":"随记/笔记/2025.8.20.md"}
+{"q":"欠了 97 万的人该找什么样的独处空间？","path":"读书/学什么.md"}
+{"q":"LTspice 用多支路集总 RLC 仿真电源平面，能用到多高频率？","path":"随记/网页镜像/Simulating Power Planes with LTspice.md"}
+{"q":"康华光模电里差分放大电路的传输特性，输入差模电压到多大就被限幅？","path":"项目/教材编写/汇总.md"}

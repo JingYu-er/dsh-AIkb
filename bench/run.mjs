@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { evaluate, formatSummary, summarize } from './metrics.mjs';
 
@@ -28,10 +28,45 @@ const rerankBlend = Number(value('rerank-blend', '0')) || undefined;
 const rerankPool = Number(value('rerank-pool', '0')) || undefined;
 const hybridWeight = Number(value('hybrid-weight', '0')) || undefined;
 const topK = Number(value('topk', '8'));
+const useNotesLayer = flag('notes-layer');
+const notesLimit = Number(value('notes-limit', '5')) || 5;
 const outPath = value('json', '');
 const verbose = flag('verbose');
 
-const fs = { root: ROOT, exists: async (rel) => existsSync(join(ROOT, rel)), readText: async (rel) => readFileSync(join(ROOT, rel), 'utf8') };
+/**
+ * The notes layer lists the vault at query time. Bench-side walker: skip dot directories and
+ * node_modules, and carry an mtime so the layer's cache key can notice edits.
+ */
+function walkVault(rel = '') {
+  const out = [];
+  let entries;
+  try {
+    entries = readdirSync(join(ROOT, rel), { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+    const next = rel === '' ? entry.name : rel + '/' + entry.name;
+    if (entry.isDirectory()) {
+      out.push(...walkVault(next));
+      continue;
+    }
+    let modifiedAt = '';
+    try {
+      modifiedAt = statSync(join(ROOT, next)).mtime.toISOString();
+    } catch { /* a file removed mid-walk is not worth failing over */ }
+    out.push({ relPath: next, bytes: 0, modifiedAt });
+  }
+  return out;
+}
+
+const fs = {
+  root: ROOT,
+  exists: async (rel) => existsSync(join(ROOT, rel)),
+  readText: async (rel) => readFileSync(join(ROOT, rel), 'utf8'),
+  listFiles: async () => walkVault(),
+};
 
 /** Page lookup for the term@5 metric: catalog path -> source id -> page text. */
 const INDEX = join(ROOT, '.wiki/index');
@@ -97,11 +132,39 @@ if (mode === 'hybrid') {
   console.log('vectors:', vectors.ids.length, 'chunks,', vectors.dims, 'dims');
 }
 
-const config = { set: setNames, mode, multi: useMulti, rerank: useRerank, expand: useExpand, topK };
+const config = { set: setNames, mode, multi: useMulti, rerank: useRerank, expand: useExpand, topK, notesLayer: useNotesLayer, notesLimit };
 console.log(JSON.stringify(config));
 
 const report = { config, sets: {} };
 for (const setName of setNames) {
+  if (setName === 'notes') {
+    // Notes set: each question's answer lives in one vault note; a hit is that note's path in the
+    // returned pages. Baseline (books only) scores 0 because .md files are not in the index.
+    const lines = readFileSync(new URL('./questions-notes.jsonl', import.meta.url), 'utf8')
+      .split('\n').map((line) => line.trim()).filter((line) => line !== '');
+    const items = lines.map((line) => JSON.parse(line));
+    const rows = [];
+    const detail = [];
+    const startedAt = Date.now();
+    for (const item of items) {
+      const options = {};
+      if (useNotesLayer) { options.notesLayer = true; options.notesLimit = notesLimit; }
+      if (rerankBlend !== undefined) options.rerankBlend = rerankBlend;
+      const result = await runQuery(fs, item.q, 5, options);
+      const rank = result.hits.findIndex((hit) => hit.path === item.path || hit.path.endsWith('/' + item.path));
+      rows.push({ rr: rank >= 0 ? 1 / (rank + 1) : 0, hit5: rank >= 0 && rank < 5 ? 1 : 0, rank });
+      const top = result.hits.slice(0, 3).map((hit) => (hit.path.split('/').pop() ?? '') + ' p.' + hit.page + (hit.kind === 'note' ? ' [note]' : ''));
+      detail.push({ query: item.q, path: item.path, rank, ok: rank >= 0 && rank < 5, ranks: top, ms: result.elapsedMs });
+      if (verbose) console.log(' ', rank >= 0 && rank < 5 ? 'Y' : 'n', item.q, '->', top.join(' | '));
+    }
+    const n = rows.length;
+    const hit5 = rows.reduce((sum, row) => sum + row.hit5, 0);
+    const mrr = n === 0 ? 0 : rows.reduce((sum, row) => sum + row.rr, 0) / n;
+    const summary = { label: 'notes', n, hit5, mrr: Number(mrr.toFixed(3)), avgMs: n === 0 ? 0 : Math.round((Date.now() - startedAt) / n) };
+    console.log('notes (n=' + n + ') hit@5 ' + hit5 + '/' + n + ' mrr ' + summary.mrr.toFixed(2) + ' avg ' + summary.avgMs + 'ms');
+    report.sets[setName] = { summary, items: detail };
+    continue;
+  }
   const { items } = await import('./sets/' + setName + '.mjs');
   const rows = [];
   const detail = [];
@@ -121,7 +184,8 @@ for (const setName of setNames) {
   if (rerankBlend !== undefined) options.rerankBlend = rerankBlend;
   if (rerankPool !== undefined) options.rerankPool = rerankPool;
   if (hybridWeight !== undefined) options.hybridWeight = hybridWeight;
-    if (mode === 'hybrid') {
+  if (useNotesLayer) { options.notesLayer = true; options.notesLimit = notesLimit; }
+  if (mode === 'hybrid') {
       const vector = await embedQuery({ pythonPath, workspaceRoot: WORKSPACE, modelDir: embeddingModel, text: query, threads: 8 });
       if (vector !== undefined) options.queryVector = vector;
     }
