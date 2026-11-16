@@ -139,9 +139,10 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     }
     try {
       // In-process, like the other plugin UIs: the server lives exactly as long as DSH.
-      const { fileURLToPath } = await import('node:url');
+      const { fileURLToPath, pathToFileURL } = await import('node:url');
       const script = fileURLToPath(new URL('../scripts/kb-ui.mjs', import.meta.url));
-      const { startUiServer } = await import(script);
+      // A bare Windows path is not a valid ESM specifier: hand the loader a file:// URL.
+      const { startUiServer } = await import(pathToFileURL(script).href);
       const configuredVault = config.vaultPath !== undefined && config.vaultPath.trim() !== ''
         ? nodePath.resolve(config.vaultPath.trim())
         : process.env.KB_VAULT ?? '';
