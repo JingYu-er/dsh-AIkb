@@ -55,12 +55,17 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
 .qrow .c{flex:1;min-width:0;white-space:pre-wrap;word-break:break-word}.qrow .c b{color:#9cc7ff}
 .qrow input[type=text]{flex:1;min-width:140px;padding:4px 6px;background:#1b1f26;border:1px solid #333a45;border-radius:6px;color:#fff;font:12px/1.4 system-ui}
 .qrow select{padding:4px 6px;background:#1b1f26;border:1px solid #333a45;border-radius:6px;color:#fff;font-size:12px}
+.split{flex:0 0 6px;cursor:col-resize;background:transparent;position:relative}
+.split:hover,.split.on{background:#3a4352}
+.split::after{content:"";position:absolute;left:2px;top:0;bottom:0;width:2px;background:#2a2e36}
+.split:hover::after,.split.on::after{background:#5b6b86}
 #qreport:empty{display:none}
 #qreport{white-space:pre-wrap;font:12px/1.6 ui-monospace,Consolas,monospace;background:#191d24;border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:0;color:#9fd0a8}
 </style>
 <header><b>dsh-kb</b><span class="tab on" id="t-notes">笔记</span><span class="tab" id="t-search">检索</span><span class="tab" id="t-drafts">草稿</span><span class="tab" id="t-links">入链</span><span class="tab" id="t-review">矛盾</span><span id="status" style="margin-left:auto;color:#7d8798;font-size:12px"></span></header>
 <main>
-  <aside><input id="filter" placeholder="过滤笔记…"><div id="tree"></div></aside>
+  <aside id="side"><input id="filter" placeholder="过滤笔记…"><div id="tree"></div></aside>
+  <div class="split" data-el="side" data-dir="l"></div>
   <div id="pane">
     <div id="bar"><span id="path">未选择笔记</span><span style="margin-left:auto"></span><button id="save" disabled>保存</button></div>
     <textarea id="editor" spellcheck="false" placeholder="从左侧选一篇笔记…"></textarea>
@@ -69,6 +74,7 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
   <div id="search"><input id="q" placeholder="检索书库与笔记（回车）"><label style="display:flex;gap:6px;align-items:center;margin:8px 0;font-size:12px;color:#8b96a8"><input type="checkbox" id="withNotes" checked> 含笔记（笔记按标题/正文单独打分）</label><div id="hits"></div></div>
   <div id="drafts">
     <div id="dlist"></div>
+    <div class="split" data-el="dlist" data-dir="l"></div>
     <div id="dview">
       <div style="display:flex;gap:8px;align-items:center"><span id="dpath" style="color:#8b96a8;font-size:12px">未选择草稿</span><span style="margin-left:auto"></span><button id="dcompile">编译</button><button id="dpreview">预览合并</button><button id="dconfirm">确认落盘</button></div>
       <pre id="dtext"></pre>
@@ -80,16 +86,18 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
       <div id="pbar"><span id="ppath" style="color:#8b96a8">未选择笔记</span><span style="margin-left:auto"></span><button id="prefresh">重新计算</button></div>
       <div id="pbody">
         <pre id="ptext"></pre>
+        <div class="split" data-el="pside" data-dir="r"></div>
         <div id="pside"><div id="phint">点击左侧目录中的笔记：这里会同时显示它的内容和可能相关的笔记。</div><div id="pcands"></div><pre id="preport"></pre></div>
       </div>
     </div>
   </div>
   <div id="queue">
     <div id="qlist"></div>
+    <div class="split" data-el="qlist" data-dir="l"></div>
     <div id="qview">
       <div id="qbar"><span id="qpath" style="color:#8b96a8">未选择矛盾队列</span><span style="margin-left:auto"></span><button id="qscanreview">扫描矛盾候选</button><button id="qarchive">归档已处理</button></div>
       <div id="qhint"></div>
-      <div id="qtexts"><div class="qdoc"><div class="qdochd">新笔记 <span id="qnewname"></span></div><pre id="qnewtext"></pre></div><div class="qdoc"><div class="qdochd">旧笔记 <span id="qoldname"></span></div><pre id="qoldtext"></pre></div></div>
+      <div id="qtexts"><div class="qdoc" id="qnewdoc"><div class="qdochd">新笔记 <span id="qnewname"></span></div><pre id="qnewtext"></pre></div><div class="split" data-el="qnewdoc" data-dir="l"></div><div class="qdoc"><div class="qdochd">旧笔记 <span id="qoldname"></span></div><pre id="qoldtext"></pre></div></div>
       <div id="qrows"></div>
       <pre id="qreport"></pre>
     </div>
@@ -102,6 +110,20 @@ var notes=[],current="",expanded={},tree=null,currentMtime=0,dCur={kind:"",path:
 var byId={};
 ["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-links","t-review","queue","qlist","qview","qpath","qhint","qtexts","qnewname","qnewtext","qoldname","qoldtext","qrows","qreport","qscanreview","qarchive","plinks","pview","ppath","ptext","pside","phint","pcands","preport","prefresh"].forEach(function(id){byId[id]=document.getElementById(id)});
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
+var WIDTH_KEY="kbUiWidths";
+function savedWidths(){try{return JSON.parse(localStorage.getItem(WIDTH_KEY)||"{}")}catch(e){return {}}}
+function applySavedWidths(){var w=savedWidths();Object.keys(w).forEach(function(id){var el=document.getElementById(id);if(el&&w[id])el.style.flex="0 0 "+w[id]+"px"})}
+function setWidth(id,px){var el=document.getElementById(id);if(!el)return;el.style.flex="0 0 "+px+"px";var w=savedWidths();w[id]=Math.round(px);try{localStorage.setItem(WIDTH_KEY,JSON.stringify(w))}catch(e){}}
+function clearWidth(id){var el=document.getElementById(id);if(el)el.style.flex="";var w=savedWidths();delete w[id];try{localStorage.setItem(WIDTH_KEY,JSON.stringify(w))}catch(e){}}
+function mkSplit(el){var id=el.getAttribute("data-el");var dir=el.getAttribute("data-dir")||"l";var target=document.getElementById(id);if(!target)return;
+  el.addEventListener("mousedown",function(ev){ev.preventDefault();var sx=ev.clientX;var sw=target.getBoundingClientRect().width;document.body.style.cursor="col-resize";el.classList.add("on");
+    function mv(e2){var dx=e2.clientX-sx;var w=dir==="l"?sw+dx:sw-dx;w=Math.max(160,Math.min(w,window.innerWidth-360));setWidth(id,w)}
+    function up(){document.body.style.cursor="";el.classList.remove("on");document.removeEventListener("mousemove",mv);document.removeEventListener("mouseup",up)}
+    document.addEventListener("mousemove",mv);document.addEventListener("mouseup",up)});
+  el.addEventListener("dblclick",function(){clearWidth(id)});
+  el.addEventListener("mouseenter",function(){document.body.style.cursor="col-resize"});
+  el.addEventListener("mouseleave",function(){if(!el.classList.contains("on"))document.body.style.cursor=""})}
+applySavedWidths();Array.prototype.forEach.call(document.querySelectorAll(".split"),mkSplit);
 function build(list){var root={dirs:{},files:[]};list.forEach(function(p){var parts=p.split("/");var name=parts.pop();var node=root;parts.forEach(function(d){node.dirs[d]=node.dirs[d]||{dirs:{},files:[]};node=node.dirs[d]});node.files.push({name:name,path:p})});return root}
 function expandAncestors(path){var parts=path.split("/");parts.pop();var acc="";parts.forEach(function(d){acc=acc===""?d:acc+"/"+d;expanded[acc]=true})}
 function renderNode(node,prefix,depth){var html="";var dirs=Object.keys(node.dirs).sort(function(a,b){return a.localeCompare(b)});dirs.forEach(function(d){var path=prefix===""?d:prefix+"/"+d;var open=expanded[path]===true;html+='<div class="row" data-d="'+esc(path)+'"><span class="arrow">'+(open?"▾":"▸")+"</span>"+esc(d)+"</div>";if(open)html+='<div class="folder">'+renderNode(node.dirs[d],path,depth+1)+"</div>"});node.files.slice().sort(function(a,b){return a.name.localeCompare(b.name)}).forEach(function(f){html+='<div class="row note'+(f.path===current?" on":"")+'" data-p="'+esc(f.path)+'">'+esc(f.name)+"</div>"});return html}
