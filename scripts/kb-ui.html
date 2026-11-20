@@ -27,7 +27,7 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
 #dtext{color:#cfd6e2;max-height:40%}#dreport{color:#9fd0a8}
 .ditem{padding:3px 12px;cursor:pointer;color:#c3ccda;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ditem:hover{background:#1d222b}.ditem.on{background:#263041;color:#fff}.dgrp{padding:6px 12px 2px;color:#8b96a8;font-size:11px}
-#queue{display:none;flex:1;min-height:0}
+#queue{display:none;flex:1;min-height:0;min-width:0}
 #plinks{display:none;flex:1;min-height:0;min-width:0}
 #pview{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px 14px;gap:8px}
 #pbar{display:flex;gap:8px;align-items:center;font-size:12px;color:#8b96a8;flex:none}
@@ -41,11 +41,12 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
 #pcands .pwhy{flex:1;min-width:0}
 #preport:empty{display:none}
 #preport{white-space:pre-wrap;font:12px/1.6 ui-monospace,Consolas,monospace;background:#191d24;border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:0;color:#9fd0a8}
-#qlist{width:290px;border-right:1px solid #2a2e36;overflow:auto;padding:6px 0;flex:none}
+#qlist{width:290px;min-width:0;border-right:1px solid #2a2e36;overflow:auto;padding:6px 0;flex:none}
 #qview{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px 14px;gap:8px;overflow:hidden}
 #qbar{display:flex;gap:8px;align-items:center;font-size:12px;color:#8b96a8;flex-wrap:wrap}
 #qhint{font-size:12px;color:#8b96a8;background:#191d24;border:1px solid #2a2e36;border-radius:8px;padding:6px 10px}
-#qbody{display:flex;flex:1;min-height:0;gap:0}
+#qbody{display:flex;flex:1;min-height:0;min-width:0;gap:0}
+#qview.empty #qbody{display:none}
 #qtexts{display:flex;flex-direction:column;gap:0;flex:0 0 56%;min-height:0;min-width:0}
 .qdoc{flex:1;min-width:0;display:flex;flex-direction:column;border:1px solid #2a2e36;border-radius:8px;overflow:hidden;background:#191d24}
 .qdochd{padding:4px 10px;font-size:11px;color:#8b96a8;border-bottom:1px solid #2a2e36;flex:none}
@@ -107,7 +108,7 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
       <div id="qhint"></div>
       <div id="qbody">
         <div id="qtexts"><div class="qdoc" id="qnewdoc"><div class="qdochd">新笔记 <span id="qnewname"></span></div><pre id="qnewtext"></pre></div><div class="split" data-el="qnewdoc" data-dir="b"></div><div class="qdoc" id="qolddoc"><div class="qdochd">旧笔记 <span id="qoldname"></span></div><pre id="qoldtext"></pre></div></div>
-        <div class="split" data-el="qtexts" data-dir="r"></div>
+        <div class="split" data-el="qtexts" data-dir="l"></div>
         <div id="qrows"></div>
       </div>
       <pre id="qreport"></pre>
@@ -178,7 +179,8 @@ function qShort(item){var s=qLabel(item),i=s.lastIndexOf("/");return i<0?s:s.sli
 function qItem(kind,item){var on=(qCur.kind===kind&&qCur.path===item.path)?" on":"";return '<div class="ditem'+on+'" data-qk="'+kind+'" data-qp="'+esc(item.path)+'" title="'+esc(qLabel(item))+'">'+esc(qShort(item))+"（待办 "+item.pending+"/"+item.rows.length+"）</div>"}
 function renderQueueList(){var h="";if(qQueues.review.length)h+='<div class="dgrp">矛盾审查 '+qQueues.review.length+"</div>"+qQueues.review.map(function(x){return qItem("review",x)}).join("");byId.qlist.innerHTML=h||'<div class="dgrp">没有待处理队列</div>';if(!qCur.path)byId.qpath.textContent="未选择队列"}
 async function loadQueues(){try{var j=await (await fetch("/api/queues?kind=review")).json();if(!j.ok)return;qQueues={links:[],review:j.queues||[]};renderQueueList();renderQueue()}catch(err){byId.qreport.textContent="矛盾队列读取失败"}}
-function renderQueue(){var item=findQueue(qCur.kind,qCur.path);if(!item){byId.qrows.innerHTML="";byId.qhint.textContent="左侧选一份矛盾队列：选判定、填依据，再点「保存」。";return}
+function renderQueue(){var item=findQueue(qCur.kind,qCur.path);if(!item){byId.qrows.innerHTML="";byId.qview.classList.add("empty");byId.qhint.textContent="左侧选一份矛盾队列：选判定、填依据，再点「保存」。";return}
+  byId.qview.classList.remove("empty");
   byId.qpath.textContent=(qCur.kind==="links"?"链接候选":"矛盾审查")+" · "+qLabel(item);
   byId.qhint.textContent=qCur.kind==="links"?"在 why 里写清「为什么这两篇该连」，点「保存并应用」会把 [[目标]] — 说明 追加到源笔记的「## 关联」（写前自动备份；留空 = 不批准）。":"冲突 = 两说不能同时成立；细化 = 新说法是旧说法的补充；无关 = 相似度误报。选判定、填依据后点「保存」。";
   byId.qrows.innerHTML=item.rows.map(function(row,i){
