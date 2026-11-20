@@ -25,6 +25,38 @@ const compiledUpToDate = async (inbox, draft) => {
   }
 };
 
+/**
+ * Promote is a one-shot decision, so it is remembered by the hash of the compiled text: the same
+ * compiled copy never shows up again, while a draft edited afterwards gets a new hash and returns
+ * to the review list.
+ */
+const PROMOTIONS = '.wiki/promoted.json';
+const promotionPath = (vault) => join(vault, PROMOTIONS);
+const readPromotions = (vault) => {
+  try {
+    const parsed = JSON.parse(readFileSync(promotionPath(vault), 'utf8'));
+    return Array.isArray(parsed) ? parsed.filter((e) => e && typeof e.source === 'string' && typeof e.hash === 'string') : [];
+  } catch {
+    return [];
+  }
+};
+const promotedAlready = (promotions, source, hash) => promotions.some((e) => e.source === source && e.hash === hash);
+const rememberPromotion = (vault, source, target, hash) => {
+  const promotions = readPromotions(vault).filter((e) => e.source !== source);
+  promotions.push({ source, target, hash, at: new Date().toISOString() });
+  mkdirSync(dirname(promotionPath(vault)), { recursive: true });
+  writeFileSync(promotionPath(vault), JSON.stringify(promotions, null, 2));
+};
+/** Compiled copies are listed vault-relative ('inbox/_compiled/…') or inbox-relative. */
+const vaultFile = (vault, rel) => join(vault, rel.startsWith('inbox/') ? rel : join('inbox', rel));
+const compiledHashAt = (vault, rel) => {
+  try {
+    return compiledHashOf(readFileSync(vaultFile(vault, rel), 'utf8'));
+  } catch {
+    return undefined;
+  }
+};
+
 const readBody = async (req) => {
   let body = '';
   for await (const part of req) body += part;
@@ -238,6 +270,11 @@ const createUiServer = () => createServer(async (req, res) => {
           compiled = [];
         }
       }
+      const promotions = readPromotions(vault);
+      compiled = compiled.filter((rel) => {
+        const hash = compiledHashAt(vault, rel);
+        return hash === undefined || !promotedAlready(promotions, rel, hash);
+      });
       return send(200, 'application/json', JSON.stringify({ ok: true, drafts, compiled, promoteDir: PROMOTE_DIR }));
     }
     if (url.pathname === '/api/draft') {
@@ -267,6 +304,13 @@ const createUiServer = () => createServer(async (req, res) => {
         confirm: parsed.confirm === true,
         force: parsed.force === true,
       });
+      if (parsed.confirm === true) {
+        for (const note of report.notes ?? []) {
+          if (note.error || !['create', 'update', 'unchanged'].includes(note.status)) continue;
+          const hash = compiledHashAt(vault, note.source);
+          if (hash !== undefined) rememberPromotion(vault, note.source, note.target, hash);
+        }
+      }
       return send(200, 'application/json', JSON.stringify(report));
     }
     if (url.pathname === '/api/links') {
