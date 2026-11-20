@@ -1,6 +1,6 @@
 import { createServer } from 'node:http';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -10,6 +10,8 @@ const { NodePromoteFs } = await import(distUrl('adapters/fs/promote-fs.js'));
 const { runCompile } = await import(distUrl('application/kb-compile.js'));
 const { runPromote } = await import(distUrl('application/kb-promote.js'));
 const { compiledHashOf } = await import(distUrl('domain/compile.js'));
+const { applyLinks, parseQueue, renderQueue, reviewLinks } = await import(distUrl('application/kb-links.js'));
+const { parseReviewQueue, reviewNotes } = await import(distUrl('application/kb-review.js'));
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 /** Paths arrive in two dialects: 'draft.md' (inbox-relative) and 'inbox/_compiled/…' (vault-relative). */
@@ -55,6 +57,140 @@ const compiledHashAt = (vault, rel) => {
   } catch {
     return undefined;
   }
+};
+
+/**
+ * The queue engines need a plain vault filesystem: they write queue files under inbox/ and,
+ * when a link is approved, append to the source note itself (they keep their own backups).
+ */
+const queueFs = (vault) => ({
+  listFiles: async () => {
+    const out = [];
+    const walk = (dir, prefix, depth) => {
+      if (depth > 8 || out.length >= 6000) return;
+      let entries = [];
+      try {
+        entries = readdirSync(dir, { withFileTypes: true });
+      } catch {
+        return;
+      }
+      for (const entry of entries) {
+        if (out.length >= 6000) return;
+        if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+        const full = join(dir, entry.name);
+        const rel = prefix === '' ? entry.name : prefix + '/' + entry.name;
+        if (entry.isDirectory()) {
+          walk(full, rel, depth + 1);
+        } else if (entry.name.toLowerCase().endsWith('.md')) {
+          let stat = { mtimeMs: 0 };
+          try {
+            stat = statSync(full);
+          } catch {
+            // unreadable file: still listed so the engine can skip it
+          }
+          out.push({ relPath: rel, modifiedMs: stat.mtimeMs });
+        }
+      }
+    };
+    walk(vault, '', 0);
+    return out;
+  },
+  readText: async (rel) => readFileSync(join(vault, rel), 'utf8'),
+  writeText: async (rel, content) => {
+    const full = join(vault, rel);
+    mkdirSync(dirname(full), { recursive: true });
+    writeFileSync(full, content);
+  },
+  exists: async (rel) => existsSync(join(vault, rel)),
+  remove: async (rel) => {
+    try {
+      unlinkSync(join(vault, rel));
+    } catch {
+      // already gone
+    }
+  },
+});
+
+const QUEUE_DIRS = { links: 'inbox/links', review: 'inbox/review' };
+const ARCHIVE_DIR = '.wiki/queue-archive';
+const escapeQueueCell = (value) => String(value).replace(/\r?\n/g, ' ').replace(/\|/g, '\\|').trim();
+const noteOfQueue = (text) => {
+  const match = /^note:\s*(.+)$/m.exec(text);
+  return match === null ? '' : match[1].trim().replace(/^['"]|['"]$/g, '');
+};
+/** One queue file as the UI needs it: the source note, its rows, and how many still wait for a human. */
+const readQueueFile = (vault, kind, rel) => {
+  const text = readFileSync(join(vault, rel), 'utf8');
+  if (kind === 'links') {
+    const queue = parseQueue(rel, text);
+    return {
+      kind,
+      path: rel,
+      note: queue.note,
+      generated: queue.generated,
+      rows: queue.rows.map((row) => ({
+        target: row.target,
+        confidence: row.confidence,
+        direction: row.direction,
+        why: row.why,
+        applied: row.applied,
+      })),
+      pending: queue.rows.filter((row) => !row.applied && row.why.trim() === '').length,
+    };
+  }
+  const rows = parseReviewQueue(text);
+  return {
+    kind,
+    path: rel,
+    note: noteOfQueue(text),
+    generated: '',
+    rows: rows.map((row) => ({
+      oldPath: row.oldPath,
+      oldName: row.oldName,
+      score: row.score,
+      oldText: row.oldText,
+      newText: row.newText,
+      verdict: row.verdict,
+      basis: row.basis,
+    })),
+    pending: rows.filter((row) => row.verdict.trim() === '').length,
+  };
+};
+const listQueues = (vault, kind) => {
+  const dir = QUEUE_DIRS[kind];
+  if (dir === undefined) return [];
+  const base = join(vault, dir);
+  if (!existsSync(base)) return [];
+  const out = [];
+  for (const name of readdirSync(base)) {
+    if (!name.toLowerCase().endsWith('.md')) continue;
+    try {
+      out.push(readQueueFile(vault, kind, dir + '/' + name));
+    } catch {
+      // unreadable queue: leave it out instead of failing the whole list
+    }
+  }
+  return out.sort((left, right) => right.pending - left.pending || left.path.localeCompare(right.path));
+};
+/** Rewrite one review row's 判定/依据 cells in place, leaving every other byte of the table alone. */
+const patchReviewRow = (text, index, verdict, basis) => {
+  const lines = text.split(/\r?\n/);
+  let seen = 0;
+  for (let line = 0; line < lines.length; line += 1) {
+    const trimmed = (lines[line] ?? '').trim();
+    if (!trimmed.startsWith('|')) continue;
+    const cells = trimmed.replace(/^\|/, '').replace(/\|$/, '').split(/(?<!\\)\|/).map((cell) => cell.trim());
+    if (cells.length < 6) continue;
+    if ((cells[0] ?? '').includes('旧笔记')) continue;
+    if (/^-+$/.test((cells[0] ?? '').replace(/\s/g, ''))) continue;
+    if (seen === index) {
+      const next = [cells[0], cells[1], cells[2], cells[3], escapeQueueCell(verdict), escapeQueueCell(basis)].concat(cells.slice(6));
+      lines[line] = '| ' + next.join(' | ') + ' |';
+      return lines.join('\n');
+    }
+    seen += 1;
+  }
+  return undefined;
 };
 
 const readBody = async (req) => {
@@ -276,6 +412,131 @@ const createUiServer = () => createServer(async (req, res) => {
         return hash === undefined || !promotedAlready(promotions, rel, hash);
       });
       return send(200, 'application/json', JSON.stringify({ ok: true, drafts, compiled, promoteDir: PROMOTE_DIR }));
+    }
+    if (url.pathname === '/api/queues') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const kind = url.searchParams.get('kind') ?? '';
+      if (kind === 'links' || kind === 'review') {
+        return send(200, 'application/json', JSON.stringify({ ok: true, kind, queues: listQueues(vault, kind) }));
+      }
+      return send(200, 'application/json', JSON.stringify({
+        ok: true,
+        links: listQueues(vault, 'links'),
+        review: listQueues(vault, 'review'),
+      }));
+    }
+    if (url.pathname === '/api/queue/link/why' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = String(parsed.path ?? '');
+      if (!rel.startsWith(QUEUE_DIRS.links + '/')) {
+        return send(400, 'application/json', JSON.stringify({ ok: false, error: 'not a link queue' }));
+      }
+      const index = Number(parsed.index ?? -1);
+      try {
+        const queue = parseQueue(rel, readFileSync(join(vault, rel), 'utf8'));
+        if (!Number.isInteger(index) || index < 0 || index >= queue.rows.length) {
+          return send(400, 'application/json', JSON.stringify({ ok: false, error: 'row index out of range' }));
+        }
+        const why = String(parsed.why ?? '').trim();
+        const rows = queue.rows.map((row, at) => (at === index ? { ...row, why } : row));
+        writeFileSync(join(vault, rel), renderQueue({ note: queue.note, generated: queue.generated, rows }));
+        return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, index, why }));
+      } catch (error) {
+        return send(500, 'application/json', JSON.stringify({ ok: false, error: String(error.message).slice(0, 160) }));
+      }
+    }
+    if (url.pathname === '/api/queue/link/apply' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = String(parsed.path ?? '');
+      if (rel !== '' && !rel.startsWith(QUEUE_DIRS.links + '/')) {
+        return send(400, 'application/json', JSON.stringify({ ok: false, error: 'not a link queue' }));
+      }
+      const report = await applyLinks(queueFs(vault), vault, {
+        ...(rel === '' ? {} : { queue: rel }),
+        confirm: parsed.confirm !== false,
+      });
+      return send(200, 'application/json', JSON.stringify(report));
+    }
+    if (url.pathname === '/api/queue/review/verdict' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = String(parsed.path ?? '');
+      if (!rel.startsWith(QUEUE_DIRS.review + '/')) {
+        return send(400, 'application/json', JSON.stringify({ ok: false, error: 'not a review queue' }));
+      }
+      const index = Number(parsed.index ?? -1);
+      try {
+        const text = readFileSync(join(vault, rel), 'utf8');
+        const next = patchReviewRow(text, index, String(parsed.verdict ?? ''), String(parsed.basis ?? ''));
+        if (next === undefined) {
+          return send(400, 'application/json', JSON.stringify({ ok: false, error: 'row index out of range' }));
+        }
+        writeFileSync(join(vault, rel), next);
+        return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, index }));
+      } catch (error) {
+        return send(500, 'application/json', JSON.stringify({ ok: false, error: String(error.message).slice(0, 160) }));
+      }
+    }
+    if (url.pathname === '/api/queue/scan' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const kind = String(parsed.kind ?? 'links');
+      const limit = Math.min(50, Math.max(1, Number(parsed.limit ?? 5)));
+      const note = typeof parsed.note === 'string' && parsed.note.trim() !== '' ? parsed.note.trim() : undefined;
+      if (kind === 'links') {
+        const report = await reviewLinks(queueFs(vault), vault, {
+          write: true,
+          limit,
+          ...(note === undefined ? {} : { note }),
+        });
+        return send(200, 'application/json', JSON.stringify({
+          ok: true,
+          kind,
+          notes: report.notes,
+          candidates: report.candidates,
+          rejected: report.rejected,
+          queues: report.queues.length,
+          warnings: report.warnings,
+        }));
+      }
+      const report = await reviewNotes(queueFs(vault), vault, {
+        write: true,
+        limit,
+        ...(note === undefined ? {} : { note }),
+      });
+      return send(200, 'application/json', JSON.stringify({
+        ok: true,
+        kind: 'review',
+        notes: report.notes,
+        pending: report.pending,
+        queues: report.queues.length,
+        warnings: report.warnings,
+      }));
+    }
+    if (url.pathname === '/api/queue/archive' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const kind = String(parsed.kind ?? '');
+      const rel = String(parsed.path ?? '');
+      const dir = QUEUE_DIRS[kind];
+      if (dir === undefined || !rel.startsWith(dir + '/')) {
+        return send(400, 'application/json', JSON.stringify({ ok: false, error: 'not a queue path' }));
+      }
+      try {
+        const file = readQueueFile(vault, kind, rel);
+        if (file.pending > 0 && parsed.force !== true) {
+          return send(409, 'application/json', JSON.stringify({ ok: false, error: '还有 ' + file.pending + ' 条待处理；全部填完或传 force 才能归档', pending: file.pending }));
+        }
+        const name = rel.slice(dir.length + 1);
+        const target = ARCHIVE_DIR + '/' + kind + '/' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + name;
+        mkdirSync(dirname(join(vault, target)), { recursive: true });
+        renameSync(join(vault, rel), join(vault, target));
+        return send(200, 'application/json', JSON.stringify({ ok: true, from: rel, to: target }));
+      } catch (error) {
+        return send(500, 'application/json', JSON.stringify({ ok: false, error: String(error.message).slice(0, 160) }));
+      }
     }
     if (url.pathname === '/api/draft') {
       const vault = vaultFor(url.searchParams.get('address') || '');

@@ -27,8 +27,20 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
 #dtext{color:#cfd6e2;max-height:40%}#dreport{color:#9fd0a8}
 .ditem{padding:3px 12px;cursor:pointer;color:#c3ccda;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ditem:hover{background:#1d222b}.ditem.on{background:#263041;color:#fff}.dgrp{padding:6px 12px 2px;color:#8b96a8;font-size:11px}
+#queue{display:none;flex:1;min-height:0}
+#qlist{width:290px;border-right:1px solid #2a2e36;overflow:auto;padding:6px 0;flex:none}
+#qview{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px 14px;gap:8px;overflow:auto}
+#qbar{display:flex;gap:8px;align-items:center;font-size:12px;color:#8b96a8;flex-wrap:wrap}
+#qhint{font-size:12px;color:#8b96a8;background:#191d24;border:1px solid #2a2e36;border-radius:8px;padding:6px 10px}
+#qrows{display:flex;flex-direction:column;gap:0}
+.qrow{display:flex;gap:8px;align-items:flex-start;border-bottom:1px solid #232833;padding:8px 0;font-size:12px;color:#c3ccda}
+.qrow.done{opacity:.55}.qmark{width:16px;flex:none;text-align:center;color:#7d8798}
+.qrow .c{flex:1;min-width:0;white-space:pre-wrap;word-break:break-word}.qrow .c b{color:#9cc7ff}
+.qrow input[type=text]{flex:1;min-width:140px;padding:4px 6px;background:#1b1f26;border:1px solid #333a45;border-radius:6px;color:#fff;font:12px/1.4 system-ui}
+.qrow select{padding:4px 6px;background:#1b1f26;border:1px solid #333a45;border-radius:6px;color:#fff;font-size:12px}
+#qreport{white-space:pre-wrap;font:12px/1.6 ui-monospace,Consolas,monospace;background:#191d24;border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:0;color:#9fd0a8}
 </style>
-<header><b>dsh-kb</b><span class="tab on" id="t-notes">笔记</span><span class="tab" id="t-search">检索</span><span class="tab" id="t-drafts">草稿</span><span id="status" style="margin-left:auto;color:#7d8798;font-size:12px"></span></header>
+<header><b>dsh-kb</b><span class="tab on" id="t-notes">笔记</span><span class="tab" id="t-search">检索</span><span class="tab" id="t-drafts">草稿</span><span class="tab" id="t-queue">队列</span><span id="status" style="margin-left:auto;color:#7d8798;font-size:12px"></span></header>
 <main>
   <aside><input id="filter" placeholder="过滤笔记…"><div id="tree"></div></aside>
   <div id="pane">
@@ -45,13 +57,22 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
       <pre id="dreport"></pre>
     </div>
   </div>
+  <div id="queue">
+    <div id="qlist"></div>
+    <div id="qview">
+      <div id="qbar"><span id="qpath" style="color:#8b96a8">未选择队列</span><span style="margin-left:auto"></span><button id="qscanlinks">扫描链接候选</button><button id="qscanreview">扫描矛盾候选</button><button id="qapply">应用已填写的 why</button><button id="qarchive">归档已处理</button></div>
+      <div id="qhint"></div>
+      <div id="qrows"></div>
+      <pre id="qreport"></pre>
+    </div>
+  </div>
 </main>
 <script>
 var NL=String.fromCharCode(10);
 window.onerror=function(m,src,line,col){var s=document.getElementById("status");if(s){s.textContent="脚本错误: "+m+" @"+line+":"+col;s.style.color="#d98a8a"}};
 var notes=[],current="",expanded={},tree=null,currentMtime=0,dCur={kind:"",path:""};
 var byId={};
-["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts"].forEach(function(id){byId[id]=document.getElementById(id)});
+["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-queue","queue","qlist","qview","qpath","qhint","qrows","qreport","qscanlinks","qscanreview","qapply","qarchive"].forEach(function(id){byId[id]=document.getElementById(id)});
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
 function build(list){var root={dirs:{},files:[]};list.forEach(function(p){var parts=p.split("/");var name=parts.pop();var node=root;parts.forEach(function(d){node.dirs[d]=node.dirs[d]||{dirs:{},files:[]};node=node.dirs[d]});node.files.push({name:name,path:p})});return root}
 function expandAncestors(path){var parts=path.split("/");parts.pop();var acc="";parts.forEach(function(d){acc=acc===""?d:acc+"/"+d;expanded[acc]=true})}
@@ -64,8 +85,8 @@ byId.links.addEventListener("click",function(e){var el=e.target.closest(".lk[dat
 byId.save.onclick=async function(){try{var r=await fetch("/api/save",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:current,text:byId.editor.value,mtime:currentMtime})});var j=await r.json();if(j.ok){currentMtime=j.mtime||currentMtime;byId.status.textContent="已保存";return}if(j.code==="conflict"){byId.editor.value=j.text;currentMtime=j.mtime||0;byId.status.textContent="文件被别处改过，已载入最新版本";return}byId.status.textContent="保存失败："+(j.error||"")}catch(err){byId.status.textContent="保存失败"}};
 byId.filter.oninput=render;
 async function load(){try{var r=await fetch("/api/notes");var j=await r.json();if(!j.ok)throw new Error("bad");notes=j.notes||[];tree=build(notes);byId.status.textContent=notes.length+" 篇笔记";render()}catch(err){byId.status.textContent="知识库服务正在启动…";setTimeout(load,1500)}}
-function showTab(which){byId["t-notes"].classList.toggle("on",which==="notes");byId["t-search"].classList.toggle("on",which==="search");byId["t-drafts"].classList.toggle("on",which==="drafts");byId.pane.style.display=which==="notes"?"flex":"none";byId.search.style.display=which==="search"?"flex":"none";byId.drafts.style.display=which==="drafts"?"flex":"none";if(which==="drafts")loadDrafts()}
-byId["t-notes"].onclick=function(){showTab("notes")};byId["t-search"].onclick=function(){showTab("search")};byId["t-drafts"].onclick=function(){showTab("drafts")};
+function showTab(which){["notes","search","drafts","queue"].forEach(function(k){byId["t-"+k].classList.toggle("on",which===k)});byId.pane.style.display=which==="notes"?"flex":"none";byId.search.style.display=which==="search"?"flex":"none";byId.drafts.style.display=which==="drafts"?"flex":"none";byId.queue.style.display=which==="queue"?"flex":"none";if(which==="drafts")loadDrafts();if(which==="queue")loadQueues()}
+byId["t-notes"].onclick=function(){showTab("notes")};byId["t-search"].onclick=function(){showTab("search")};byId["t-drafts"].onclick=function(){showTab("drafts")};byId["t-queue"].onclick=function(){showTab("queue")};
 async function loadDrafts(){try{var j=await (await fetch("/api/drafts")).json();if(!j.ok)return;var h="";if(j.drafts.length)h+='<div class="dgrp">收件箱 '+j.drafts.length+"</div>"+j.drafts.map(function(p){return '<div class="ditem" data-k="draft" data-p="'+esc(p)+'">'+esc(p)+"</div>"}).join("");if(j.compiled.length)h+='<div class="dgrp">已编译 '+j.compiled.length+"</div>"+j.compiled.map(function(p){return '<div class="ditem" data-k="compiled" data-p="'+esc(p)+'">'+esc(p)+"</div>"}).join("");byId.dlist.innerHTML=h||'<div class="dgrp">没有草稿</div>'}catch(err){}}
 byId.dlist.addEventListener("click",async function(e){var el=e.target.closest(".ditem");if(!el)return;dCur={kind:el.getAttribute("data-k"),path:el.getAttribute("data-p")};Array.prototype.forEach.call(byId.dlist.querySelectorAll(".ditem"),function(n){n.classList.remove("on")});el.classList.add("on");byId.dpath.textContent=dCur.kind+" · "+dCur.path;try{var j=await (await fetch("/api/draft?path="+encodeURIComponent(dCur.path))).json();byId.dtext.textContent=j.ok?j.text:"读取失败："+j.error}catch(err){byId.dtext.textContent="读取失败"}byId.dreport.textContent=""});
 byId.dcompile.onclick=async function(){if(dCur.kind!=="draft"){byId.dreport.textContent="先选一篇收件箱草稿";return}try{var j=await (await fetch("/api/compile",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({paths:[dCur.path]})})).json();var n=(j.notes||[])[0]||{};var verdict=n.error?"失败：":(n.written?"已写入 ":(n.skipped?"内容未变，跳过写入 ":"未写入 "));byId.dreport.textContent="编译："+verdict+(n.output||n.error||"")+NL+(n.changes||[]).join(NL);await loadDrafts();if(n.output){var key=function(s){return String(s||"").replace(/^inbox\//,"")};var want=key(n.output);var el=Array.prototype.find.call(byId.dlist.querySelectorAll(".ditem"),function(x){return x.getAttribute("data-k")==="compiled"&&key(x.getAttribute("data-p"))===want});if(el)el.click()}}catch(err){byId.dreport.textContent="编译失败"}};
@@ -86,5 +107,42 @@ byId.q.addEventListener("keydown",async function(e){
     }).join("")||"没有命中";
   }catch(err){byId.hits.textContent="检索失败"}
 });
+var qQueues={links:[],review:[]},qCur={kind:"",path:""};
+function qLabel(item){return item.note||item.path.replace(/^inbox\/(links|review)\//,"")}
+function findQueue(kind,path){var list=qQueues[kind]||[];for(var i=0;i<list.length;i++)if(list[i].path===path)return list[i];return null}
+function qItem(kind,item){var on=(qCur.kind===kind&&qCur.path===item.path)?" on":"";return '<div class="ditem'+on+'" data-qk="'+kind+'" data-qp="'+esc(item.path)+'">'+esc(qLabel(item))+"（待办 "+item.pending+"/"+item.rows.length+"）</div>"}
+function renderQueueList(){var h="";if(qQueues.links.length)h+='<div class="dgrp">链接候选 '+qQueues.links.length+"</div>"+qQueues.links.map(function(x){return qItem("links",x)}).join("");if(qQueues.review.length)h+='<div class="dgrp">矛盾审查 '+qQueues.review.length+"</div>"+qQueues.review.map(function(x){return qItem("review",x)}).join("");byId.qlist.innerHTML=h||'<div class="dgrp">没有待处理队列</div>';if(!qCur.path)byId.qpath.textContent="未选择队列"}
+async function loadQueues(){try{var j=await (await fetch("/api/queues")).json();if(!j.ok)return;qQueues={links:j.links||[],review:j.review||[]};renderQueueList();renderQueue()}catch(err){byId.qreport.textContent="队列读取失败"}}
+function renderQueue(){var item=findQueue(qCur.kind,qCur.path);if(!item){byId.qrows.innerHTML="";byId.qhint.textContent="左侧选一份队列：链接候选填 why 后应用；矛盾审查填判定与依据。";return}
+  byId.qpath.textContent=(qCur.kind==="links"?"链接候选":"矛盾审查")+" · "+qLabel(item);
+  byId.qhint.textContent=qCur.kind==="links"?"在 why 里写清「为什么这两篇该连」，点「保存并应用」会把 [[目标]] — 说明 追加到源笔记的「## 关联」（写前自动备份；留空 = 不批准）。":"冲突 = 两说不能同时成立；细化 = 新说法是旧说法的补充；无关 = 相似度误报。选判定、填依据后点「保存」。";
+  byId.qrows.innerHTML=item.rows.map(function(row,i){
+    if(qCur.kind==="links"){var done=row.applied===true;return '<div class="qrow'+(done?" done":"")+'"><div class="qmark">'+(done?"✓":"·")+'</div><div class="c"><b>[['+esc(row.target)+']]</b> · '+esc(String(row.confidence))+" · "+esc(row.direction)+'</div><input type="text" class="qwhy" data-i="'+i+'" placeholder="why（留空 = 不批准）" value="'+esc(row.why)+'"'+(done?" disabled":"")+">"+(done?"":'<button data-a="link" data-i="'+i+'">保存并应用</button>')+"</div>"}
+    var vd=row.verdict||"";var opts=["","冲突","细化","无关"].map(function(v){return '<option value="'+v+'"'+(v===vd?" selected":"")+">"+(v===""?"（待判）":v)+"</option>"}).join("");
+    return '<div class="qrow"><div class="c"><b>旧：'+esc(row.oldName)+"</b> · 相似度 "+esc(String(row.score))+"<br>旧说法："+esc(row.oldText)+"<br>新说法："+esc(row.newText)+'</div><select class="qvd" data-i="'+i+'">'+opts+'</select><input type="text" class="qbs" data-i="'+i+'" placeholder="依据" value="'+esc(row.basis)+'"><button data-a="review" data-i="'+i+'">保存</button></div>'
+  }).join("")}
+function afterQueueChange(){renderQueueList();renderQueue()}
+byId.qlist.addEventListener("click",function(e){var el=e.target.closest(".ditem");if(!el)return;qCur={kind:el.getAttribute("data-qk"),path:el.getAttribute("data-qp")};afterQueueChange()});
+byId.qrows.addEventListener("click",async function(e){var btn=e.target.closest("button[data-a]");if(!btn)return;var i=Number(btn.getAttribute("data-i"));var item=findQueue(qCur.kind,qCur.path);if(!item)return;btn.disabled=true;try{
+  if(btn.getAttribute("data-a")==="link"){
+    var input=byId.qrows.querySelector('.qwhy[data-i="'+i+'"]');var why=input?input.value.trim():"";
+    if(!why){byId.qreport.textContent="why 为空：这一条不会被批准";return}
+    var w=await (await fetch("/api/queue/link/why",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:item.path,index:i,why:why})})).json();
+    if(!w.ok){byId.qreport.textContent="保存 why 失败："+(w.error||"");return}
+    var r=await (await fetch("/api/queue/link/apply",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:item.path,confirm:true})})).json();
+    byId.qreport.textContent="应用："+(r.applied||0)+" 条 · 仍待填 "+(r.pending||0)+" · 跳过 "+(r.skipped||0)+NL+(r.rows||[]).map(function(x){return (x.written?"写入 ":"跳过 ")+(x.note||"")+" ← [["+(x.target||"")+"]]"+(x.why?" — "+x.why:"")+(x.skipped?"（"+x.skipped+"）":"")}).join(NL);
+    qQueues.links=(await (await fetch("/api/queues?kind=links")).json()).queues||qQueues.links;afterQueueChange();return
+  }
+  var sel=byId.qrows.querySelector('.qvd[data-i="'+i+'"]');var bs=byId.qrows.querySelector('.qbs[data-i="'+i+'"]');
+  var v=await (await fetch("/api/queue/review/verdict",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:item.path,index:i,verdict:sel?sel.value:"",basis:bs?bs.value:""})})).json();
+  if(!v.ok){byId.qreport.textContent="保存失败："+(v.error||"");return}
+  byId.qreport.textContent="已保存判定："+((sel&&sel.value)||"（待判）");
+  qQueues.review=(await (await fetch("/api/queues?kind=review")).json()).queues||qQueues.review;afterQueueChange()
+}catch(err){byId.qreport.textContent="请求失败"}finally{btn.disabled=false}});
+async function applyAllFilled(){var item=findQueue("links",qCur.path);if(qCur.kind!=="links"||!item){byId.qreport.textContent="先在左侧选一份链接队列";return}try{var r=await (await fetch("/api/queue/link/apply",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:item.path,confirm:true})})).json();byId.qreport.textContent="应用："+(r.applied||0)+" 条 · 仍待填 "+(r.pending||0)+" · 跳过 "+(r.skipped||0)+(r.warnings&&r.warnings.length?NL+r.warnings.join(NL):"");qQueues.links=(await (await fetch("/api/queues?kind=links")).json()).queues||qQueues.links;afterQueueChange()}catch(err){byId.qreport.textContent="应用失败"}}
+byId.qapply.onclick=applyAllFilled;
+byId.qarchive.onclick=async function(){if(!qCur.path){byId.qreport.textContent="先选一份队列";return}try{var r=await (await fetch("/api/queue/archive",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({kind:qCur.kind,path:qCur.path})})).json();if(!r.ok){byId.qreport.textContent="归档失败："+(r.error||"");return}byId.qreport.textContent="已归档到 "+r.to;qCur={kind:"",path:""};await loadQueues()}catch(err){byId.qreport.textContent="归档失败"}};
+async function scanQueues(kind,limit){byId.qreport.textContent="扫描中（最多 "+limit+" 篇未处理笔记）…";try{var r=await (await fetch("/api/queue/scan",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({kind:kind,limit:limit})})).json();if(!r.ok){byId.qreport.textContent="扫描失败："+(r.error||"");return}byId.qreport.textContent=kind==="links"?("链接扫描：处理 "+r.notes+" 篇 · 候选 "+r.candidates+" · 排除 "+r.rejected+" · 队列 "+r.queues):("矛盾扫描：处理 "+r.notes+" 篇 · 待判 "+r.pending+" · 队列 "+r.queues);await loadQueues()}catch(err){byId.qreport.textContent="扫描失败"}}
+byId.qscanlinks.onclick=function(){scanQueues("links",5)};byId.qscanreview.onclick=function(){scanQueues("review",5)};
 load();
 </script></html>
