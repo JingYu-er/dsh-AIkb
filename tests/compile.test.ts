@@ -131,3 +131,15 @@ test('_compiled output is never treated as an input draft', async () => {
   const report = await runCompile(fs, '/vault');
   assert.deepEqual(report.notes.map((note) => note.path), ['node.md']);
 });
+
+test('review queues are not drafts, but nested links folders are', async () => {
+  const fs = fakeFs({
+    'node.md': draft,
+    'links/note.md': draft,
+    'review/note.md': draft,
+    '_compiled/old.md': 'x',
+    'notes/links/deep.md': draft,
+  });
+  const report = await runCompile(fs, '/vault');
+  assert.deepEqual(report.notes.map((note) => note.path).sort(), ['node.md', 'notes/links/deep.md']);
+});

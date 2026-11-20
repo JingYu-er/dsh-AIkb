@@ -1,8 +1,11 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import type { CompileFs } from '../../application/kb-compile.js';
+import { COMPILED_DIR, QUEUE_DIRS, type CompileFs } from '../../application/kb-compile.js';
 
 const SKIP_DIRECTORIES = new Set(['.obsidian', '.git', '.trash', 'node_modules', '.kb', '.stfolder', '.stversions']);
+
+/** Top-level inbox folders the plugin owns: review queues and compile output. Their markdown is bookkeeping, never a draft. */
+const RESERVED_TOP_LEVEL = new Set<string>([COMPILED_DIR, ...QUEUE_DIRS]);
 
 function denied(message: string): Error {
   return Object.assign(new Error(message), { code: 'vault.write-denied' });
@@ -29,6 +32,7 @@ export class NodeInboxFs implements CompileFs {
         if (entry.name.startsWith('.')) continue;
         if (entry.isDirectory()) {
           if (SKIP_DIRECTORIES.has(entry.name)) continue;
+          if (prefix === '' && RESERVED_TOP_LEVEL.has(entry.name)) continue;
           await walk(path.join(absolute, entry.name), prefix + entry.name + '/');
           continue;
         }

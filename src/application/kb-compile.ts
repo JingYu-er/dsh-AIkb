@@ -46,15 +46,19 @@ export interface CompileReport {
 
 export const COMPILED_DIR = '_compiled';
 
+/** Machine-maintained folders that sit directly inside the inbox (review queues, never drafts). */
+export const QUEUE_DIRS: readonly string[] = ['links', 'review'];
+
 function normalisePath(path: string): string {
   return path.replace(/^\/+/, '').replace(/\\/g, '/');
 }
 
-/** Skip the output folder and anything an editor or plugin keeps hidden. */
+/** Skip the output folder, the plugin's own queues, and anything an editor keeps hidden. */
 function isDraft(path: string): boolean {
   if (!/\.md$/i.test(path)) return false;
   const parts = path.split('/');
-  return !parts.some((part) => part.startsWith('.') || part === COMPILED_DIR);
+  if (parts.some((part) => part.startsWith('.') || part === COMPILED_DIR)) return false;
+  return !(parts.length > 1 && QUEUE_DIRS.includes(parts[0] ?? ''));
 }
 
 export async function runCompile(fs: CompileFs, vaultRoot: string, options: CompileOptions = {}): Promise<CompileReport> {
