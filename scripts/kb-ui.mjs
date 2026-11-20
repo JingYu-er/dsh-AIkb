@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +9,21 @@ const { NodeInboxFs } = await import(distUrl('adapters/fs/inbox-fs.js'));
 const { NodePromoteFs } = await import(distUrl('adapters/fs/promote-fs.js'));
 const { runCompile } = await import(distUrl('application/kb-compile.js'));
 const { runPromote } = await import(distUrl('application/kb-promote.js'));
+const { compiledHashOf } = await import(distUrl('domain/compile.js'));
+
+const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
+/** Paths arrive in two dialects: 'draft.md' (inbox-relative) and 'inbox/_compiled/…' (vault-relative). */
+const inboxRelative = (rel) => (rel.startsWith('inbox/') ? rel.slice('inbox/'.length) : rel);
+/** A draft whose compiled copy already matches its content is not waiting to be compiled again. */
+const compiledUpToDate = async (inbox, draft) => {
+  try {
+    const output = '_compiled/' + draft;
+    if (!(await inbox.exists(output))) return false;
+    return compiledHashOf(await inbox.readText(output)) === sha256(await inbox.readText(draft));
+  } catch {
+    return false;
+  }
+};
 
 const readBody = async (req) => {
   let body = '';
@@ -209,7 +225,11 @@ const createUiServer = () => createServer(async (req, res) => {
     if (url.pathname === '/api/drafts') {
       const vault = vaultFor(url.searchParams.get('address') || '');
       const inbox = new NodeInboxFs(vault);
-      const drafts = (await inbox.listDrafts()).filter((p) => !p.startsWith('_compiled/'));
+      const listed = (await inbox.listDrafts()).filter((p) => !p.startsWith('_compiled/'));
+      const drafts = [];
+      for (const draft of listed) {
+        if (!(await compiledUpToDate(inbox, draft))) drafts.push(draft);
+      }
       let compiled = [];
       if (PROMOTE_DIR !== '') {
         try {
@@ -224,7 +244,7 @@ const createUiServer = () => createServer(async (req, res) => {
       const vault = vaultFor(url.searchParams.get('address') || '');
       const rel = url.searchParams.get('path') ?? '';
       try {
-        return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, text: await new NodeInboxFs(vault).readText(rel) }));
+        return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, text: await new NodeInboxFs(vault).readText(inboxRelative(rel)) }));
       } catch (error) {
         return send(404, 'application/json', JSON.stringify({ ok: false, error: String(error.message).slice(0, 120) }));
       }
