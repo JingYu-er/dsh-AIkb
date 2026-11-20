@@ -547,6 +547,15 @@ const createUiServer = () => createServer(async (req, res) => {
         const qfs = queueFs(vault);
         if (!(await qfs.exists(rel))) return send(404, 'application/json', JSON.stringify({ ok: false, error: 'note not found: ' + rel }));
         const started = Date.now();
+        const raw = await qfs.readText(rel);
+        const prose = raw
+          .replace(/^---\r?\n[\s\S]*?\r?\n---/, '')
+          .replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, '')
+          .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
+          .replace(/!\[\[[^\]]*\]\]/g, ' ')
+          .replace(/https?:\/\/\S+/gi, ' ')
+          .trim();
+        if (prose.length < 30) return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, rows: [], reason: '这篇笔记几乎没有正文（只有代码或图片），没有可比较的内容，算不出候选。', elapsedMs: Date.now() - started }));
         const suggestion = await suggestLinks(qfs, vault, { note: rel, limit: 5000, minScore: 0.25, perNote: 12 });
         const byName = new Map();
         for (const entry of await qfs.listFiles()) {
@@ -557,6 +566,8 @@ const createUiServer = () => createServer(async (req, res) => {
         const currentName = (rel.split('/').pop() ?? '').replace(/\.md$/i, '').toLowerCase();
         const rows = [];
         for (const item of suggestion.suggestions) {
+          if (item.from !== rel) continue;
+          if (rows.length >= 12) break;
           const name = item.to.trim().toLowerCase();
           const targetPath = byName.get(name);
           if (targetPath === undefined || targetPath === rel) continue;
