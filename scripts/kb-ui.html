@@ -45,9 +45,13 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
 #qview{flex:1;display:flex;flex-direction:column;min-width:0;padding:10px 14px;gap:8px;overflow:auto}
 #qbar{display:flex;gap:8px;align-items:center;font-size:12px;color:#8b96a8;flex-wrap:wrap}
 #qhint{font-size:12px;color:#8b96a8;background:#191d24;border:1px solid #2a2e36;border-radius:8px;padding:6px 10px}
+#qtexts{display:flex;gap:10px;flex:0 0 40%;min-height:0}
+.qdoc{flex:1;min-width:0;display:flex;flex-direction:column;border:1px solid #2a2e36;border-radius:8px;overflow:hidden;background:#191d24}
+.qdochd{padding:4px 10px;font-size:11px;color:#8b96a8;border-bottom:1px solid #2a2e36;flex:none}
+.qdoc pre{margin:0;padding:8px 10px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:12px/1.55 ui-monospace,Consolas,monospace;color:#cfd6e2;flex:1;min-height:0}
 #qrows{display:flex;flex-direction:column;gap:0}
 .qrow{display:flex;gap:8px;align-items:flex-start;border-bottom:1px solid #232833;padding:8px 0;font-size:12px;color:#c3ccda}
-.qrow.done{opacity:.55}.qmark{width:16px;flex:none;text-align:center;color:#7d8798}
+.qrow.on{background:#1b2029}.qrow.done{opacity:.55}.qmark{width:16px;flex:none;text-align:center;color:#7d8798}
 .qrow .c{flex:1;min-width:0;white-space:pre-wrap;word-break:break-word}.qrow .c b{color:#9cc7ff}
 .qrow input[type=text]{flex:1;min-width:140px;padding:4px 6px;background:#1b1f26;border:1px solid #333a45;border-radius:6px;color:#fff;font:12px/1.4 system-ui}
 .qrow select{padding:4px 6px;background:#1b1f26;border:1px solid #333a45;border-radius:6px;color:#fff;font-size:12px}
@@ -85,6 +89,7 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
     <div id="qview">
       <div id="qbar"><span id="qpath" style="color:#8b96a8">未选择矛盾队列</span><span style="margin-left:auto"></span><button id="qscanreview">扫描矛盾候选</button><button id="qarchive">归档已处理</button></div>
       <div id="qhint"></div>
+      <div id="qtexts"><div class="qdoc"><div class="qdochd">新笔记 <span id="qnewname"></span></div><pre id="qnewtext"></pre></div><div class="qdoc"><div class="qdochd">旧笔记 <span id="qoldname"></span></div><pre id="qoldtext"></pre></div></div>
       <div id="qrows"></div>
       <pre id="qreport"></pre>
     </div>
@@ -95,7 +100,7 @@ var NL=String.fromCharCode(10);
 window.onerror=function(m,src,line,col){var s=document.getElementById("status");if(s){s.textContent="脚本错误: "+m+" @"+line+":"+col;s.style.color="#d98a8a"}};
 var notes=[],current="",expanded={},tree=null,currentMtime=0,dCur={kind:"",path:""};
 var byId={};
-["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-links","t-review","queue","qlist","qview","qpath","qhint","qrows","qreport","qscanreview","qarchive","plinks","pview","ppath","ptext","pside","phint","pcands","preport","prefresh"].forEach(function(id){byId[id]=document.getElementById(id)});
+["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-links","t-review","queue","qlist","qview","qpath","qhint","qtexts","qnewname","qnewtext","qoldname","qoldtext","qrows","qreport","qscanreview","qarchive","plinks","pview","ppath","ptext","pside","phint","pcands","preport","prefresh"].forEach(function(id){byId[id]=document.getElementById(id)});
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
 function build(list){var root={dirs:{},files:[]};list.forEach(function(p){var parts=p.split("/");var name=parts.pop();var node=root;parts.forEach(function(d){node.dirs[d]=node.dirs[d]||{dirs:{},files:[]};node=node.dirs[d]});node.files.push({name:name,path:p})});return root}
 function expandAncestors(path){var parts=path.split("/");parts.pop();var acc="";parts.forEach(function(d){acc=acc===""?d:acc+"/"+d;expanded[acc]=true})}
@@ -130,7 +135,9 @@ byId.q.addEventListener("keydown",async function(e){
     }).join("")||"没有命中";
   }catch(err){byId.hits.textContent="检索失败"}
 });
-var qQueues={links:[],review:[]},qCur={kind:"",path:""};
+var qQueues={links:[],review:[]},qCur={kind:"",path:""},qSel=0;
+function markQRow(){Array.prototype.forEach.call(byId.qrows.querySelectorAll(".qrow"),function(r,i){r.classList.toggle("on",i===qSel)})}
+async function loadReviewTexts(item,index){var row=item.rows[index]||{};byId.qnewname.textContent=item.note||"";byId.qoldname.textContent=row.oldName?("· "+row.oldName):"";byId.qnewtext.textContent="读取中…";byId.qoldtext.textContent="";try{var a=await (await fetch("/api/note?path="+encodeURIComponent(item.note||""))).json();byId.qnewtext.textContent=a.ok?a.text:("读取失败："+(a.error||""))}catch(e){byId.qnewtext.textContent="读取失败"};if(!row.oldPath)return;try{var b=await (await fetch("/api/note?path="+encodeURIComponent(row.oldPath))).json();byId.qoldtext.textContent=b.ok?b.text:("读取失败："+(b.error||""))}catch(e){byId.qoldtext.textContent="读取失败"}}
 function qLabel(item){return item.note||item.path.replace(/^inbox\/(links|review)\//,"")}
 function findQueue(kind,path){var list=qQueues[kind]||[];for(var i=0;i<list.length;i++)if(list[i].path===path)return list[i];return null}
 function qItem(kind,item){var on=(qCur.kind===kind&&qCur.path===item.path)?" on":"";return '<div class="ditem'+on+'" data-qk="'+kind+'" data-qp="'+esc(item.path)+'">'+esc(qLabel(item))+"（待办 "+item.pending+"/"+item.rows.length+"）</div>"}
@@ -143,10 +150,10 @@ function renderQueue(){var item=findQueue(qCur.kind,qCur.path);if(!item){byId.qr
     if(qCur.kind==="links"){var done=row.applied===true;return '<div class="qrow'+(done?" done":"")+'"><div class="qmark">'+(done?"✓":"·")+'</div><div class="c"><b>[['+esc(row.target)+']]</b> · '+esc(String(row.confidence))+" · "+esc(row.direction)+'</div><input type="text" class="qwhy" data-i="'+i+'" placeholder="why（留空 = 不批准）" value="'+esc(row.why)+'"'+(done?" disabled":"")+">"+(done?"":'<button data-a="link" data-i="'+i+'">保存并应用</button>')+"</div>"}
     var vd=row.verdict||"";var opts=["","冲突","细化","无关"].map(function(v){return '<option value="'+v+'"'+(v===vd?" selected":"")+">"+(v===""?"（待判）":v)+"</option>"}).join("");
     return '<div class="qrow"><div class="c"><b>旧：'+esc(row.oldName)+"</b> · 相似度 "+esc(String(row.score))+"<br>旧说法："+esc(row.oldText)+"<br>新说法："+esc(row.newText)+'</div><select class="qvd" data-i="'+i+'">'+opts+'</select><input type="text" class="qbs" data-i="'+i+'" placeholder="依据" value="'+esc(row.basis)+'"><button data-a="review" data-i="'+i+'">保存</button></div>'
-  }).join("")}
+  }).join("");qSel=Math.min(qSel,Math.max(0,item.rows.length-1));markQRow();if(qCur.kind==="review"&&item.rows.length)loadReviewTexts(item,qSel)}
 function afterQueueChange(){renderQueueList();renderQueue()}
-byId.qlist.addEventListener("click",function(e){var el=e.target.closest(".ditem");if(!el)return;qCur={kind:el.getAttribute("data-qk"),path:el.getAttribute("data-qp")};afterQueueChange()});
-byId.qrows.addEventListener("click",async function(e){var btn=e.target.closest("button[data-a]");if(!btn)return;var i=Number(btn.getAttribute("data-i"));var item=findQueue(qCur.kind,qCur.path);if(!item)return;btn.disabled=true;try{
+byId.qlist.addEventListener("click",function(e){var el=e.target.closest(".ditem");if(!el)return;qCur={kind:el.getAttribute("data-qk"),path:el.getAttribute("data-qp")};qSel=0;afterQueueChange()});
+byId.qrows.addEventListener("click",async function(e){var btn=e.target.closest("button[data-a]");if(!btn){var rr=e.target.closest(".qrow");if(!rr||qCur.kind!=="review")return;var it0=findQueue(qCur.kind,qCur.path);if(!it0)return;var idx=Array.prototype.indexOf.call(byId.qrows.querySelectorAll(".qrow"),rr);if(idx<0)return;qSel=idx;markQRow();loadReviewTexts(it0,idx);return}var i=Number(btn.getAttribute("data-i"));var item=findQueue(qCur.kind,qCur.path);if(!item)return;btn.disabled=true;try{
   if(btn.getAttribute("data-a")==="link"){
     var input=byId.qrows.querySelector('.qwhy[data-i="'+i+'"]');var why=input?input.value.trim():"";
     if(!why){byId.qreport.textContent="why 为空：这一条不会被批准";return}
