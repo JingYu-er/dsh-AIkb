@@ -10,7 +10,8 @@ const { NodePromoteFs } = await import(distUrl('adapters/fs/promote-fs.js'));
 const { runCompile } = await import(distUrl('application/kb-compile.js'));
 const { runPromote } = await import(distUrl('application/kb-promote.js'));
 const { compiledHashOf } = await import(distUrl('domain/compile.js'));
-const { applyLinks, parseQueue, renderQueue, reviewLinks } = await import(distUrl('application/kb-links.js'));
+const { appendAssociation, applyLinks, backupPathFor, parseQueue, renderQueue, reviewLinks } = await import(distUrl('application/kb-links.js'));
+const { suggestLinks } = await import(distUrl('application/kb-suggest-links.js'));
 const { parseReviewQueue, reviewNotes } = await import(distUrl('application/kb-review.js'));
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -534,6 +535,58 @@ const createUiServer = () => createServer(async (req, res) => {
         mkdirSync(dirname(join(vault, target)), { recursive: true });
         renameSync(join(vault, rel), join(vault, target));
         return send(200, 'application/json', JSON.stringify({ ok: true, from: rel, to: target }));
+      } catch (error) {
+        return send(500, 'application/json', JSON.stringify({ ok: false, error: String(error.message).slice(0, 160) }));
+      }
+    }
+    if (url.pathname === '/api/possible') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = (url.searchParams.get('path') ?? '').trim();
+      if (rel === '') return send(400, 'application/json', JSON.stringify({ ok: false, error: 'path required' }));
+      try {
+        const qfs = queueFs(vault);
+        if (!(await qfs.exists(rel))) return send(404, 'application/json', JSON.stringify({ ok: false, error: 'note not found: ' + rel }));
+        const started = Date.now();
+        const suggestion = await suggestLinks(qfs, vault, { note: rel, limit: 5000, minScore: 0.25, perNote: 12 });
+        const byName = new Map();
+        for (const entry of await qfs.listFiles()) {
+          if (!/\.md$/i.test(entry.relPath)) continue;
+          const name = (entry.relPath.split('/').pop() ?? '').replace(/\.md$/i, '').toLowerCase();
+          if (name !== '' && !byName.has(name)) byName.set(name, entry.relPath);
+        }
+        const currentName = (rel.split('/').pop() ?? '').replace(/\.md$/i, '').toLowerCase();
+        const rows = [];
+        for (const item of suggestion.suggestions) {
+          const name = item.to.trim().toLowerCase();
+          const targetPath = byName.get(name);
+          if (targetPath === undefined || targetPath === rel) continue;
+          if (name === currentName) continue;
+          if (/^inbox\//i.test(targetPath) || /^(copilot|\.agents|\.claude|\.wiki)\//i.test(targetPath)) continue;
+          const stem = (targetPath.split('/').pop() ?? '').replace(/\.md$/i, '');
+          rows.push({ target: stem, path: targetPath, title: item.to, confidence: Math.round(item.confidence * 1000) / 1000, why: item.why, direction: '', warning: '' });
+        }
+        return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, rows, warnings: [], elapsedMs: Date.now() - started }));
+      } catch (error) {
+        return send(500, 'application/json', JSON.stringify({ ok: false, error: String(error.message).slice(0, 160) }));
+      }
+    }
+    if (url.pathname === '/api/possible/apply' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = String(parsed.path ?? '').trim();
+      const target = String(parsed.target ?? '').trim();
+      const why = String(parsed.why ?? '').trim();
+      if (rel === '' || target === '') return send(400, 'application/json', JSON.stringify({ ok: false, error: 'path and target required' }));
+      if (why === '') return send(400, 'application/json', JSON.stringify({ ok: false, error: 'why required' }));
+      try {
+        const fs = queueFs(vault);
+        const text = await fs.readText(rel);
+        const next = appendAssociation(text, target, why);
+        if (next === text) return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, target, why, unchanged: true }));
+        const backup = backupPathFor(new Date(), rel);
+        await fs.writeText(backup, text);
+        await fs.writeText(rel, next);
+        return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, target, why, backup, unchanged: false }));
       } catch (error) {
         return send(500, 'application/json', JSON.stringify({ ok: false, error: String(error.message).slice(0, 160) }));
       }

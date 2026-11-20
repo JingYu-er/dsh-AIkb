@@ -76,7 +76,7 @@ const LINK = /!?\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g;
 const FENCED = /~~~[\s\S]*?~~~|```[\s\S]*?```/g;
 const ATTACHMENT = /\.(png|jpe?g|gif|webp|svg|pdf|mp4|canvas|excalidraw|base)$/i;
 const DRAWING = /\.excalidraw\.md$/i;
-const SKIP_PREFIXES = [/^inbox\/_compiled\//i, /^inbox\/links\//i, /^(copilot|\.agents|\.claude|\.wiki)\//i];
+const SKIP_PREFIXES = [/^inbox\/_compiled\//i, /^inbox\/links\//i, /^inbox\/review\//i, /^(copilot|\.agents|\.claude|\.wiki)\//i];
 const TEMPLATE_PREFIX = /(^|\/)(ZtTemplates|Templater|Templates)\//i;
 const KNOWN_EXTRAS = new Set(['index', 'log', 'schema']);
 
