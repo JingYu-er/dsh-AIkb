@@ -375,6 +375,150 @@ const notePath = (vault, relative) => {
 };
 const { runQuery } = await import('../dist/application/kb-query.js');
 
+/** Rule stage of the funnel: judge every 待复核 row from the excerpts alone, then hand the rest to a model. */
+const JUDGE_MODEL_URL = process.env.KB_AI_JUDGE_URL || 'https://api.minimaxi.com/v1/chat/completions';
+const JUDGE_MODEL_NAME = process.env.KB_AI_JUDGE_MODEL || 'MiniMax-M3.1-Flash';
+const JUDGE_BATCH = 12;
+const JUDGE_MAX_ROWS = 60;
+const JUDGE_SYSTEM = '你是矛盾判定器。每一对是同一个参数（或高度相关的说法）在旧笔记与新笔记里的摘录。只依据摘录本身判断：冲突 = 两说不能同时成立（数值不同、极性相反、一方是另一方的否定）；细化 = 新说法是旧说的补充或更具体，两者可以同时成立；无关 = 只是同一主题的不同说法。只输出 JSON 数组，不要解释，不要代码块。每个元素 {"i":序号,"v":"冲突|细化|无关","b":"不超过40字的依据"}。拿不准时给 细化，并在 b 里写明「拿不准」。';
+
+/** The local DSH install keeps third-party keys in one yaml file; reuse the MiniMax key instead of asking for a new one. */
+function readLocalCredential(name) {
+  const home = process.env.USERPROFILE || process.env.HOME || '';
+  if (home === '') return '';
+  try {
+    const text = readFileSync(join(home, '.dsh', '.credentials.yaml'), 'utf8');
+    const hit = new RegExp('^\\s*' + name + '\\s*:\\s*(.+)$', 'm').exec(text);
+    if (hit === null) return '';
+    return hit[1].trim().replace(/^["']|["']$/g, '');
+  } catch { return ''; }
+}
+
+function judgeModelConfig() {
+  const key = process.env.KB_AI_JUDGE_KEY || readLocalCredential('MINIMAX_CN_API_KEY');
+  if (key === '') return undefined;
+  return { key, url: JUDGE_MODEL_URL, model: JUDGE_MODEL_NAME };
+}
+
+async function callJudgeModel(config, pairs) {
+  const prompt = pairs.map((pair, i) => '[' + i + '] 旧：' + String(pair.oldText).slice(0, 400) + '\n    新：' + String(pair.newText).slice(0, 400)).join('\n\n');
+  const response = await fetch(config.url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: 'Bearer ' + config.key },
+    body: JSON.stringify({
+      model: config.model,
+      temperature: 0,
+      max_tokens: 2000,
+      messages: [{ role: 'system', content: JUDGE_SYSTEM }, { role: 'user', content: prompt }],
+    }),
+    signal: AbortSignal.timeout(60000),
+  });
+  if (!response.ok) throw new Error('HTTP ' + response.status + '：' + (await response.text()).slice(0, 120));
+  const json = await response.json();
+  const content = String(json && json.choices && json.choices[0] && json.choices[0].message ? json.choices[0].message.content : '');
+  const block = /\[[\s\S]*\]/.exec(content);
+  if (block === null) throw new Error('模型没有返回 JSON 数组');
+  const list = JSON.parse(block[0]);
+  const out = [];
+  for (const item of Array.isArray(list) ? list : []) {
+    const index = Number(item && (item.i !== undefined ? item.i : item.index));
+    const verdict = String((item && (item.v !== undefined ? item.v : item.verdict)) || '').trim();
+    const basis = String((item && (item.b !== undefined ? item.b : item.basis)) || '').trim().slice(0, 160) || '模型判定';
+    if (!Number.isInteger(index) || index < 0 || index >= pairs.length) continue;
+    if (verdict !== '冲突' && verdict !== '细化' && verdict !== '无关') continue;
+    out.push({ index, verdict, basis });
+  }
+  return out;
+}
+
+/** One pass over the queues: rules first, then (optionally) the model on what the rules could not settle. */
+async function judgeRun(vault, only, options) {
+  const dir = join(vault, QUEUE_DIRS.review);
+  const targets = only !== ''
+    ? (only.startsWith(QUEUE_DIRS.review + '/') ? [only] : [])
+    : (existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith('.md')).map((name) => QUEUE_DIRS.review + '/' + name) : []);
+  const counts = { judged: 0, conflicts: 0, irrelevant: 0, refined: 0 };
+  const leftovers = [];
+  let touched = 0;
+  for (const rel of targets) {
+    try {
+      const file = readQueueFile(vault, 'review', rel);
+      let text = readFileSync(join(vault, rel), 'utf8');
+      let changed = false;
+      file.rows.forEach((row, index) => {
+        const verdict = row.verdict.trim();
+        if (verdict !== '' && verdict !== '待复核') return;
+        const outcome = judgePair(row.oldText, row.newText);
+        if (outcome.verdict === '待复核') {
+          leftovers.push({ path: rel, index, oldText: String(row.oldText), newText: String(row.newText) });
+          return;
+        }
+        counts.judged += 1;
+        if (outcome.verdict === '冲突') counts.conflicts += 1;
+        else if (outcome.verdict === '无关') counts.irrelevant += 1;
+        else counts.refined += 1;
+        const next = patchReviewRow(text, index, outcome.verdict, outcome.basis);
+        if (next !== undefined) { text = next; changed = true; }
+      });
+      if (changed) { writeFileSync(join(vault, rel), text); touched += 1; }
+    } catch { /* a broken queue must not stop the rest */ }
+  }
+  const model = { ok: false, called: 0, judged: 0, error: '' };
+  if (options.model === true && leftovers.length > 0) {
+    const config = judgeModelConfig();
+    if (config === undefined) {
+      model.error = '没有模型凭据：设置 KB_AI_JUDGE_KEY，或在本机 ~/.dsh/.credentials.yaml 里保留 MINIMAX_CN_API_KEY';
+    } else {
+      const batch = leftovers.slice(0, JUDGE_MAX_ROWS);
+      model.called = batch.length;
+      const byPath = new Map();
+      for (let start = 0; start < batch.length; start += JUDGE_BATCH) {
+        const slice = batch.slice(start, start + JUDGE_BATCH);
+        try {
+          for (const item of await callJudgeModel(config, slice)) {
+            const row = slice[item.index];
+            if (row === undefined) continue;
+            if (!byPath.has(row.path)) byPath.set(row.path, []);
+            byPath.get(row.path).push({ index: row.index, verdict: item.verdict, basis: item.basis });
+          }
+        } catch (error) {
+          model.error = String(error && error.message ? error.message : error).slice(0, 200);
+        }
+      }
+      for (const [rel, rows] of byPath) {
+        try {
+          let text = readFileSync(join(vault, rel), 'utf8');
+          for (const row of rows.sort((left, right) => left.index - right.index)) {
+            const next = patchReviewRow(text, row.index, row.verdict, row.basis);
+            if (next === undefined) continue;
+            text = next;
+            model.judged += 1;
+            if (row.verdict === '冲突') counts.conflicts += 1;
+            else if (row.verdict === '细化') counts.refined += 1;
+            else counts.irrelevant += 1;
+          }
+          writeFileSync(join(vault, rel), text);
+          touched += 1;
+        } catch { /* keep the rest */ }
+      }
+      model.ok = model.judged > 0 || model.error === '';
+    }
+  }
+  const items = listQueues(vault, 'review');
+  return {
+    ok: true,
+    engine: model.judged > 0 ? 'model' : 'rules',
+    queues: touched,
+    judged: counts.judged + model.judged,
+    ruleJudged: counts.judged,
+    conflicts: counts.conflicts,
+    irrelevant: counts.irrelevant,
+    refined: counts.refined,
+    pending: items.reduce((total, queue) => total + queue.pending, 0),
+    model,
+    items,
+  };
+}
 const createUiServer = () => createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', 'http://localhost');
   const send = (code, type, body) => { res.writeHead(code, { 'content-type': type, 'cache-control': 'no-store' }); res.end(body); };
@@ -538,39 +682,15 @@ const createUiServer = () => createServer(async (req, res) => {
     if (url.pathname === '/api/queue/judge' && req.method === 'POST') {
       const parsed = JSON.parse(await readBody(req));
       const vault = vaultFor(url.searchParams.get('address') || '');
-      const only = String(parsed.path ?? '');
-      const dir = join(vault, QUEUE_DIRS.review);
-      const targets = only !== ''
-        ? (only.startsWith(QUEUE_DIRS.review + '/') ? [only] : [])
-        : (existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith('.md')).map((name) => QUEUE_DIRS.review + '/' + name) : []);
-      const counts = { judged: 0, conflicts: 0, irrelevant: 0, refined: 0, pending: 0 };
-      let touched = 0;
-      for (const rel of targets) {
-        try {
-          const file = readQueueFile(vault, 'review', rel);
-          let text = readFileSync(join(vault, rel), 'utf8');
-          let changed = false;
-          file.rows.forEach((row, index) => {
-            const verdict = row.verdict.trim();
-            if (verdict !== '' && verdict !== '待复核') return;
-            const outcome = judgePair(row.oldText, row.newText);
-            counts.judged += 1;
-            if (outcome.verdict === '冲突') counts.conflicts += 1;
-            else if (outcome.verdict === '无关') counts.irrelevant += 1;
-            else if (outcome.verdict === '细化') counts.refined += 1;
-            else { counts.pending += 1; return; }
-            const next = patchReviewRow(text, index, outcome.verdict, outcome.basis);
-            if (next !== undefined) { text = next; changed = true; }
-          });
-          if (changed) { writeFileSync(join(vault, rel), text); touched += 1; }
-        } catch { /* a broken queue must not stop the rest */ }
-      }
-      return send(200, 'application/json', JSON.stringify({
-        ok: true,
-        queues: touched,
-        ...counts,
-        items: listQueues(vault, 'review'),
-      }));
+      const result = await judgeRun(vault, String(parsed.path ?? ''), { model: false });
+      return send(200, 'application/json', JSON.stringify(result));
+    }
+    // The button stage: rules settle what the excerpts prove, a model reads the rest.
+    if (url.pathname === '/api/queue/judge/ai' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req) || '{}');
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const result = await judgeRun(vault, String(parsed.path ?? ''), { model: true });
+      return send(200, 'application/json', JSON.stringify(result));
     }
     if (url.pathname === '/api/queue/pending') {
       const vault = vaultFor(url.searchParams.get('address') || '');
