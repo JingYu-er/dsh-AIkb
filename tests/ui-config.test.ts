@@ -144,6 +144,31 @@ test('schema API: template first, read-only refusal, then a save once writes are
   assert.equal(empty.body.error.code, 'kb.schema.empty');
 });
 
+test('vault init creates a skeleton, registers it and honours the write switch', async () => {
+  const dir = join(work, 'fresh-vault');
+  const created = await post('/api/vault/init', { dir, template: 'books' });
+  assert.equal(created.status, 200);
+  assert.equal(created.body.ok, true);
+  assert.ok(created.body.vault.created.includes('.dsh-aikb/schema.md'));
+  assert.equal(existsSync(join(dir, '.obsidian', 'app.json')), true);
+  assert.equal(existsSync(join(dir, 'books')), true);
+  assert.equal(created.body.registered.active, true);
+
+  const vaults = await get('/api/vaults');
+  assert.equal(vaults.vaults.length, 3, 'the init must append, not replace');
+  assert.equal(vaults.activeVault, created.body.registered.id);
+  const notes = await get('/api/notes');
+  assert.ok(notes.notes.includes('index.md'), 'the new vault is what the notes API now reads');
+
+  const current = await get('/api/config');
+  const off = await post('/api/config', { allowWrites: false, expectRevision: current.revision });
+  assert.equal(off.status, 200);
+  const refused = await post('/api/vault/init', { dir: join(work, 'blocked-vault') });
+  assert.equal(refused.status, 403);
+  assert.equal(refused.body.error.code, 'kb.init.read-only');
+  assert.equal(existsSync(join(work, 'blocked-vault')), false);
+});
+
 after(async () => {
   if (server !== undefined) await new Promise<void>((resolve) => server!.close(() => resolve()));
   delete process.env.KB_CONFIG;

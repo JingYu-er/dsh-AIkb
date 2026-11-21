@@ -439,6 +439,43 @@ and nothing written.
 | `kb.pack.corrupt-index` | `catalog.json` is not readable JSON; rebuild with `kb_ingest`. |
 | `kb.pack.invalid-name` | `name` is not a single directory name. |
 
+## kb_init
+
+Create a knowledge base from nothing, then make it the vault the other tools use.
+
+Input: `{ dir: string, name?: string, template?: "notes" | "books" | "both" | "blank", activate?: boolean }`
+
+`dir` must be absolute. It may not exist yet; if it exists it must be empty, so an
+initialised vault is never overwritten. `name` defaults to the directory name and is
+also the base of the vault id. `template` decides the folder layout (`notes`,
+`books`, `both`, or `blank` for marker and sheet only; default `notes`). `activate`
+defaults to true and makes the new vault the active one, which changes what every
+other tool resolves without a `vaultPath`.
+
+What lands on disk:
+
+```
+README.md          one paragraph: drop sources, run kb_ingest, ask with kb_query
+index.md           map-of-content note linking the template folders
+.obsidian/app.json Obsidian marker, so vault discovery finds this directory
+.dsh-aikb/schema.md vault sheet from the same template the settings page offers
+<folders>/         notes + sources, books + sources, or nothing for blank
+```
+
+Registration is a config write: the entry is appended with `slugId(name)`, existing
+entries are reused when the directory already matches (so re-running is harmless),
+and the save goes through the same optimistic-lock path as the settings page. If the
+vault is created but registration fails, the call reports `kb.init.register-failed`
+and names the directory that now exists.
+
+| Code | Meaning |
+| --- | --- |
+| `kb.init.read-only` | `allowWrites` is false. |
+| `kb.init.relative` | `dir` is not absolute. |
+| `kb.init.not-empty` | The directory already holds entries; pick an empty one. |
+| `kb.init.write-failed` | Creating the skeleton failed; the message carries the cause. |
+| `kb.init.register-failed` | The vault exists but the config write was refused. |
+
 ## kb-search skill
 
 Not a tool: an agent skill shipped with the plugin (`skills/kb-search/SKILL.md`),

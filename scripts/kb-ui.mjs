@@ -16,6 +16,7 @@ const { parseReviewQueue, reviewNotes } = await import(distUrl('application/kb-r
 const { judgePair } = await import(distUrl('application/kb-judge.js'));
 const { configFilePath, loadConfig, readiness, resolveVaultPath, saveConfig, toolchainPaths } = await import(distUrl('application/config-store.js'));
 const { readVaultSchema, schemaTemplate, writeVaultSchema } = await import(distUrl('application/vault-schema.js'));
+const { createVault, parseTemplate, planRegistration } = await import(distUrl('application/kb-init.js'));
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 /** Paths arrive in two dialects: 'draft.md' (inbox-relative) and 'inbox/_compiled/…' (vault-relative). */
@@ -643,6 +644,37 @@ const createUiServer = () => createServer(async (req, res) => {
         ...(result.error !== undefined ? { error: result.error } : {}),
         activeVault: wanted,
         vault: wanted,
+      }));
+    }
+    if (url.pathname === '/api/vault/init' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const loaded = loadConfigCached();
+      if (loaded === undefined) return send(500, 'application/json', JSON.stringify({ ok: false, error: 'kb.config.unreadable' }));
+      const created = createVault({
+        dir: String(parsed.dir ?? ''),
+        name: typeof parsed.name === 'string' && parsed.name.trim() !== '' ? parsed.name : undefined,
+        template: parseTemplate(typeof parsed.template === 'string' ? parsed.template : undefined),
+        allowWrites: loaded.config.allowWrites,
+      });
+      if (!created.ok || created.vault === undefined) {
+        const status = created.error?.code === 'kb.init.read-only' ? 403 : 400;
+        return send(status, 'application/json', JSON.stringify(created));
+      }
+      const plan = planRegistration(loaded, { dir: created.vault.dir, name: created.vault.name, activate: parsed.activate !== false });
+      const saved = await saveConfig(plan.patch, { expectRevision: plan.revision });
+      if (!saved.ok) {
+        return send(409, 'application/json', JSON.stringify({
+          ok: false,
+          vault: created.vault,
+          error: { code: 'kb.init.register-failed', message: saved.error ?? JSON.stringify(saved.problems) },
+        }));
+      }
+      return send(200, 'application/json', JSON.stringify({
+        ok: true,
+        vault: created.vault,
+        registered: { id: plan.entry.id, name: plan.entry.name, active: plan.patch.activeVault === plan.entry.id },
+        revision: saved.revision,
+        activeVault: plan.patch.activeVault,
       }));
     }
     if (url.pathname === '/api/schema' && req.method === 'GET') {

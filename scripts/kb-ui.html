@@ -129,7 +129,7 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
     </div>
   </div>
   <div id="config">
-    <div id="cfgbar"><span id="cfgwhere" style="color:#8b96a8;font-size:12px">配置未加载</span><span style="margin-left:auto"></span><button id="cfgadd">添加知识库</button><button id="cfgsave">保存</button></div>
+    <div id="cfgbar"><span id="cfgwhere" style="color:#8b96a8;font-size:12px">配置未加载</span><span style="margin-left:auto"></span><button id="cfgadd">添加知识库</button><button id="cfgnew">新建知识库</button><button id="cfgsave">保存</button></div>
     <div id="cfgpane">
       <div class="cfggrp">知识库（点左侧单选切换当前库；切换会重新加载页面，未保存的修改会丢失）</div>
       <div id="cfglist"></div>
@@ -150,7 +150,7 @@ var NL=String.fromCharCode(10);
 window.onerror=function(m,src,line,col){var s=document.getElementById("status");if(s){s.textContent="脚本错误: "+m+" @"+line+":"+col;s.style.color="#d98a8a"}};
 var notes=[],current="",expanded={},tree=null,currentMtime=0,dCur={kind:"",path:""};
 var byId={};
-["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-links","t-review","queue","qlist","qview","qpath","qhint","qtexts","qnewname","qnewtext","qoldname","qoldtext","qrows","qreport","qscanreview","qarchive","qscanlimit","qshowall","qjudge","qjudgeai","plinks","pview","ppath","ptext","pside","phint","pcands","preport","prefresh","t-config","config","cfgbar","cfgwhere","cfgadd","cfgsave","cfglist","cfgpack","cfgtool","cfgwrite","cfgmsg","cfgsheet","cfgsheetsave","cfgsheetmsg"].forEach(function(id){byId[id]=document.getElementById(id)});
+["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-links","t-review","queue","qlist","qview","qpath","qhint","qtexts","qnewname","qnewtext","qoldname","qoldtext","qrows","qreport","qscanreview","qarchive","qscanlimit","qshowall","qjudge","qjudgeai","plinks","pview","ppath","ptext","pside","phint","pcands","preport","prefresh","t-config","config","cfgbar","cfgwhere","cfgadd","cfgnew","cfgsave","cfglist","cfgpack","cfgtool","cfgwrite","cfgmsg","cfgsheet","cfgsheetsave","cfgsheetmsg"].forEach(function(id){byId[id]=document.getElementById(id)});
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
 var WIDTH_KEY="kbUiWidths";
 function savedWidths(){try{return JSON.parse(localStorage.getItem(WIDTH_KEY)||"{}")}catch(e){return {}}}
@@ -270,6 +270,22 @@ byId.cfglist.addEventListener("click",function(e){
   if(del!==null&&cfgDraft){cfgDraft.vaults.splice(Number(del),1);cfgDraft.activeIndex=Math.max(0,Math.min(cfgDraft.activeIndex,cfgDraft.vaults.length-1));cfgRender()}
 });
 byId.cfgsave.onclick=function(){cfgSave()};
+byId.cfgnew.onclick=async function(){
+  var dir=prompt("新知识库的绝对路径（目录不存在会自动创建；目录里已有文件则拒绝）","");
+  if(!dir)return;
+  var name=prompt("显示名称（留空则用目录名）","");
+  if(name===null)return;
+  var template=prompt("目录模板：notes / books / both / blank","notes");
+  if(template===null)return;
+  byId.cfgnew.disabled=true;
+  try{
+    var resp=await fetch("/api/vault/init",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({dir:dir,name:name,template:template,activate:true})});
+    var j=await resp.json();
+    if(!j.ok){alert("新建失败："+((j.error&&(j.error.message||j.error.code))||j.error));return}
+    alert("已创建 "+j.vault.dir+"（"+j.vault.created.length+" 项），并设为当前库");
+    location.reload();
+  }catch(err){alert("新建失败："+err)}finally{byId.cfgnew.disabled=false}
+};
 async function cfgLoadSheet(){
   byId.cfgsheetmsg.textContent="读取库约定…";
   try{

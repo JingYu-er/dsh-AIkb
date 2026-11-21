@@ -30,6 +30,7 @@ MVP read path and the compile loop are implemented and tested (186 unit tests):
 | `kb_link_review` | Turn similarity suggestions into SCHEMA-checked link candidates (direction, no duplicate, max 8, confidence ≥ 0.25) and write review queues under `inbox/links/`; never edits formal notes. |
 | `kb_link_apply` | Apply queue rows whose `why` was filled in: show a diff, then append `- [[target]] — why` to `## 关联`, back up to `.wiki/backups/` and mark the row `[x]`. Confirm-gated. |
 | `kb_export_pack` | Export the compiled index (not the vault) as a portable pack — `manifest.json`, `chunks.jsonl`, `SKILL.md` — that any reader can grep. Deterministic; refuses when writes are off, no pack directory is configured, or the index is empty. |
+| `kb_init` | Create a vault from nothing: Obsidian marker, folder layout for a template, vault sheet (`schema.md`), README/index, then register it in the config (optionally as the active one). Refuses a non-empty directory and leaves it untouched. |
 | `kb_review` | Deterministic contradiction candidates: take up to 3 similar older notes, extract conclusion-like paragraphs into `inbox/review/` queues with an empty `判定` column (冲突 / 细化 / 无关); preview by default, never edits notes. |
 
 Writes are off by default and, when enabled, are confined to `inbox/`, `.wiki/`,
@@ -58,8 +59,10 @@ the vault is modified; `.obsidian/` is never touched.
 - Configuration: one file, `~/.dsh-aikb/config.json` (override with `KB_CONFIG`).
   The **配置** tab in the KB panel edits it: several vaults with one active, the
   pack directory, the shared toolchain directory and the write switch. A legacy
-  single-vault `vaultPath` is migrated on read. See
-  [docs/SETTINGS.md](docs/SETTINGS.md).
+  single-vault `vaultPath` is migrated on read. The same tab holds the **vault
+  sheet** — per-vault page rules, directory purposes and the processing
+  pipeline, stored in `.dsh-aikb/schema.md` inside the vault and checked by
+  `kb_doctor`. See [docs/SETTINGS.md](docs/SETTINGS.md).
 
 (EPUB/DJVU parsers are not wired yet; `kb_ingest` reports them as errors.)
 

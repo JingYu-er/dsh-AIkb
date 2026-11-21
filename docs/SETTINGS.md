@@ -8,6 +8,7 @@ dsh-AIkb 的配置只有一份来源：`~/.dsh-aikb/config.json`（可用环境�
 在 KB 面板顶部点「配置」页签。页面上可以：
 
 - 添加、重命名、移除知识库；每行给绝对路径。圆点选中哪一行，那一行就是「当前库」。
+- 「新建知识库」直接造一个库：Obsidian 标记、模板目录（notes / books / both / blank）、库约定、README 与 index 笔记，然后登记进配置并设为当前库；目录里已有文件会被拒绝。
 - 切换当前库会立刻重新加载页面，其它页签（笔记、检索、草稿、矛盾）随之切到新库。
 - 填「知识包目录」（`kb_export_pack` 的落点）与「工具链目录」（虚拟环境、OCR 模型、向量模型共用的根）。
 - 勾选「允许写入」才会放行编译落盘、提升、链接应用等写操作。
@@ -28,6 +29,16 @@ dsh-AIkb 的配置只有一份来源：`~/.dsh-aikb/config.json`（可用环境�
 | `rerankEnabled` | 布尔 | 交叉编码器重排（慢，默认关） |
 | `allowWrites` | 布尔 | 写操作总开关 |
 | `promoteDir` | 字符串 | `kb_promote` 的落点（库内相对目录），留空表示不提升 |
+
+## 库约定
+
+每个库可以有一份「库约定」：页面规范、目录用途、加工流程写在一起，人和 AI 读同一份。
+它存放在库内 `.dsh-aikb/schema.md`，不进索引、不会被打包、也不随配置迁移——跟着库走。
+
+- 设置页「配置」页签的「库约定」文本框直接编辑；还没有文件时填入三段模板，保存即创建。
+- 保存同样受「允许写入」约束：未勾选时接口返回 403 `kb.schema.read-only`，文本框只读。
+- 上限 64 KB，空内容拒绝（`kb.schema.empty` / `kb.schema.too-large`）；写入用临时文件加 rename，不留半份。
+- `kb_doctor` 会报 `sheet` 一项：文件不存在时是 `warn`，并在 `nextActions` 里提示去设置页写。
 
 ## 工具链目录
 
@@ -70,6 +81,9 @@ dsh-AIkb 的配置只有一份来源：`~/.dsh-aikb/config.json`（可用环境�
 | `POST /api/config` | 部分更新；体里带 `expectRevision` 做乐观锁；校验失败返回 `problems`，revision 过期返回 409 与 `kb.config.stale` |
 | `GET /api/vaults` | 库清单与当前库 |
 | `POST /api/vault/active` | `{id}` 切换当前库，其它接口立即跟随 |
+| `POST /api/vault/init` | `{dir, name?, template?, activate?}` 新建库并登记；非空目录、相对路径、只读模式分别返回 400/400/403 |
+| `GET /api/schema?address=` | 当前库（或指定库）的库约定：`path`、`exists`、`bytes`、`updatedAt`、`text`、`template`、`allowWrites` |
+| `POST /api/schema` | `{text, address?}` 写入库约定；`allowWrites` 关闭时 403 |
 
 ## 旧配置迁移
 
