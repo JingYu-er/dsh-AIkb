@@ -13,14 +13,14 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path and the compile loop are implemented and tested (149 unit tests):
+MVP read path and the compile loop are implemented and tested (186 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
 | `kb_doctor` | Vault discovery, layout and permission self-check; index health (cache age, chunk files vs catalog, vector coverage). |
 | `kb_inventory` | Hash-index every binary source into `.wiki/books.jsonl`. |
 | `kb_ingest` | Page-anchored chunking + incremental local index; also harvests bilingual term pairs into `.wiki/index/glossary.json`. |
-| `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, device-name scoping, coverage weighting, chapter weighting, edition-family cap). Returns optional page windows and section context; hybrid vectors fill the tail slots. |
+| `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, device-name scoping, coverage weighting, chapter weighting, edition-family cap). Exact identifiers (standard numbers, register names, pin names, section numbers) boost the page that literally carries them. Returns optional page windows and section context; hybrid vectors fill the tail slots. |
 | `kb_embed` | Local e5-small vectors over the chunk index, incremental per book. `kb_ingest` runs it for the books it just wrote (`embedOnIngest: false` opts out). |
 | `kb_lint` | Read-only note hygiene: broken wikilinks, duplicate titles, orphan concept pages, missing frontmatter/type. |
 | `kb_compile` | Compile inbox drafts: resolve title/type, lift `sources:` and wikilinks, normalise H1 and blank lines; writes `inbox/_compiled/`, idempotent via `compiledHash`. |
@@ -29,6 +29,7 @@ MVP read path and the compile loop are implemented and tested (149 unit tests):
 | `kb_index` | Deterministic vault catalog: scan notes and wikilinks, then render `index.md` by type with per-type counts, recent changes, orphans, untyped notes and broken links. `write:true` rebuilds it and appends one `log.md` line. |
 | `kb_link_review` | Turn similarity suggestions into SCHEMA-checked link candidates (direction, no duplicate, max 8, confidence ≥ 0.25) and write review queues under `inbox/links/`; never edits formal notes. |
 | `kb_link_apply` | Apply queue rows whose `why` was filled in: show a diff, then append `- [[target]] — why` to `## 关联`, back up to `.wiki/backups/` and mark the row `[x]`. Confirm-gated. |
+| `kb_export_pack` | Export the compiled index (not the vault) as a portable pack — `manifest.json`, `chunks.jsonl`, `SKILL.md` — that any reader can grep. Deterministic; refuses when writes are off, no pack directory is configured, or the index is empty. |
 | `kb_review` | Deterministic contradiction candidates: take up to 3 similar older notes, extract conclusion-like paragraphs into `inbox/review/` queues with an empty `判定` column (冲突 / 细化 / 无关); preview by default, never edits notes. |
 
 Writes are off by default and, when enabled, are confined to `inbox/`, `.wiki/`,
