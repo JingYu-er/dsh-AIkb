@@ -13,6 +13,7 @@ const { compiledHashOf } = await import(distUrl('domain/compile.js'));
 const { appendAssociation, applyLinks, backupPathFor, parseQueue, renderQueue, reviewLinks } = await import(distUrl('application/kb-links.js'));
 const { suggestLinks } = await import(distUrl('application/kb-suggest-links.js'));
 const { parseReviewQueue, reviewNotes } = await import(distUrl('application/kb-review.js'));
+const { judgePair } = await import(distUrl('application/kb-judge.js'));
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 /** Paths arrive in two dialects: 'draft.md' (inbox-relative) and 'inbox/_compiled/…' (vault-relative). */
@@ -532,6 +533,43 @@ const createUiServer = () => createServer(async (req, res) => {
         empty: report.queues.filter((queue) => queue.rows.length === 0).length,
         items,
         warnings: report.warnings,
+      }));
+    }
+    if (url.pathname === '/api/queue/judge' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const only = String(parsed.path ?? '');
+      const dir = join(vault, QUEUE_DIRS.review);
+      const targets = only !== ''
+        ? (only.startsWith(QUEUE_DIRS.review + '/') ? [only] : [])
+        : (existsSync(dir) ? readdirSync(dir).filter((name) => name.endsWith('.md')).map((name) => QUEUE_DIRS.review + '/' + name) : []);
+      const counts = { judged: 0, conflicts: 0, irrelevant: 0, refined: 0, pending: 0 };
+      let touched = 0;
+      for (const rel of targets) {
+        try {
+          const file = readQueueFile(vault, 'review', rel);
+          let text = readFileSync(join(vault, rel), 'utf8');
+          let changed = false;
+          file.rows.forEach((row, index) => {
+            const verdict = row.verdict.trim();
+            if (verdict !== '' && verdict !== '待复核') return;
+            const outcome = judgePair(row.oldText, row.newText);
+            counts.judged += 1;
+            if (outcome.verdict === '冲突') counts.conflicts += 1;
+            else if (outcome.verdict === '无关') counts.irrelevant += 1;
+            else if (outcome.verdict === '细化') counts.refined += 1;
+            else { counts.pending += 1; return; }
+            const next = patchReviewRow(text, index, outcome.verdict, outcome.basis);
+            if (next !== undefined) { text = next; changed = true; }
+          });
+          if (changed) { writeFileSync(join(vault, rel), text); touched += 1; }
+        } catch { /* a broken queue must not stop the rest */ }
+      }
+      return send(200, 'application/json', JSON.stringify({
+        ok: true,
+        queues: touched,
+        ...counts,
+        items: listQueues(vault, 'review'),
       }));
     }
     if (url.pathname === '/api/queue/archive' && req.method === 'POST') {

@@ -105,7 +105,7 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
     <div id="qlist"></div>
     <div class="split" data-el="qlist" data-dir="l"></div>
     <div id="qview">
-      <div id="qbar"><span id="qpath" style="color:#8b96a8">未选择矛盾队列</span><span style="margin-left:auto"></span><label class="chk" title="待复核 = 规则配对出来的候选，等 NLI/agent 判过。默认只看已确认的冲突。"><input type="checkbox" id="qshowall">显示待复核</label><select id="qscanlimit" title="扫描范围：按修改时间取最近几篇正式笔记"><option value="5">最近 5 篇</option><option value="10">最近 10 篇</option><option value="20">最近 20 篇</option><option value="2000">全库</option></select><button id="qscanreview">扫描参数冲突</button><button id="qarchive">归档已处理</button></div>
+      <div id="qbar"><span id="qpath" style="color:#8b96a8">未选择矛盾队列</span><span style="margin-left:auto"></span><label class="chk" title="默认只显示已确认的冲突；勾选可看机器候选与已判为无关的行。"><input type="checkbox" id="qshowall">显示全部判定</label><select id="qscanlimit" title="扫描范围：按修改时间取最近几篇正式笔记"><option value="5">最近 5 篇</option><option value="10">最近 10 篇</option><option value="20">最近 20 篇</option><option value="2000">全库</option></select><button id="qjudge">自动判定</button><button id="qscanreview">扫描参数冲突</button><button id="qarchive">归档已处理</button></div>
       <div id="qhint"></div>
       <div id="qbody">
         <div id="qtexts"><div class="qdoc" id="qnewdoc"><div class="qdochd">新笔记 <span id="qnewname"></span></div><pre id="qnewtext"></pre></div><div class="split" data-el="qnewdoc" data-dir="b"></div><div class="qdoc" id="qolddoc"><div class="qdochd">旧笔记 <span id="qoldname"></span></div><pre id="qoldtext"></pre></div></div>
@@ -121,7 +121,7 @@ var NL=String.fromCharCode(10);
 window.onerror=function(m,src,line,col){var s=document.getElementById("status");if(s){s.textContent="脚本错误: "+m+" @"+line+":"+col;s.style.color="#d98a8a"}};
 var notes=[],current="",expanded={},tree=null,currentMtime=0,dCur={kind:"",path:""};
 var byId={};
-["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-links","t-review","queue","qlist","qview","qpath","qhint","qtexts","qnewname","qnewtext","qoldname","qoldtext","qrows","qreport","qscanreview","qarchive","qscanlimit","qshowall","plinks","pview","ppath","ptext","pside","phint","pcands","preport","prefresh"].forEach(function(id){byId[id]=document.getElementById(id)});
+["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-links","t-review","queue","qlist","qview","qpath","qhint","qtexts","qnewname","qnewtext","qoldname","qoldtext","qrows","qreport","qscanreview","qarchive","qscanlimit","qshowall","qjudge","plinks","pview","ppath","ptext","pside","phint","pcands","preport","prefresh"].forEach(function(id){byId[id]=document.getElementById(id)});
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
 var WIDTH_KEY="kbUiWidths";
 function savedWidths(){try{return JSON.parse(localStorage.getItem(WIDTH_KEY)||"{}")}catch(e){return {}}}
@@ -183,10 +183,10 @@ async function loadQueues(){try{var j=await (await fetch("/api/queues?kind=revie
 function renderQueue(){var item=findQueue(qCur.kind,qCur.path);if(!item){byId.qrows.innerHTML="";byId.qview.classList.add("empty");byId.qhint.textContent="左侧选一份矛盾队列：选判定、填依据，再点「保存」。";return}
   byId.qview.classList.remove("empty");
   byId.qpath.textContent=(qCur.kind==="links"?"链接候选":"矛盾审查")+" · "+qLabel(item);
-  byId.qhint.textContent=qCur.kind==="links"?"在 why 里写清「为什么这两篇该连」，点「保存并应用」会把 [[目标]] — 说明 追加到源笔记的「## 关联」（写前自动备份；留空 = 不批准）。":"扫描只配对「同一个参数、不同取值」或极性相反的说法，命中时已预填「冲突」，其余判定留白。冲突 = 两说不能同时成立；细化 = 新说法是旧说法的补充；无关 = 只是同主题。选判定、填依据后点「保存」。";
+  byId.qhint.textContent=qCur.kind==="links"?"在 why 里写清「为什么这两篇该连」，点「保存并应用」会把 [[目标]] — 说明 追加到源笔记的「## 关联」（写前自动备份；留空 = 不批准）。":"扫描只配对「同一个参数、不同取值」或极性相反的说法，命中先标「待复核」；点「自动判定」用数值/极性把它判成「冲突」或「无关」，判不了的留给 agent。列表默认只显示冲突；冲突 = 两说不能同时成立，细化 = 新说法是旧说的补充，无关 = 只是同主题。选判定、填依据后点「保存」。";
   var view=item.rows.map(function(row,i){return {row:row,i:i}});
-  if(qCur.kind==="review"&&!byId.qshowall.checked)view=view.filter(function(cell){return (cell.row.verdict||"")!=="待复核"});
-  byId.qrows.innerHTML=(qCur.kind==="review"&&view.length===0?'<div class="dgrp">没有已确认的冲突；勾选上方「显示待复核」查看机器配对出的候选。</div>':"")+view.map(function(cell,vi){
+  if(qCur.kind==="review"&&!byId.qshowall.checked)view=view.filter(function(cell){return (cell.row.verdict||"").trim()==="冲突"});
+  byId.qrows.innerHTML=(qCur.kind==="review"&&view.length===0?'<div class="dgrp">这份队列还没有已确认的冲突；点「自动判定」跑一遍，或勾选「显示全部判定」。</div>':"")+view.map(function(cell,vi){
     var row=cell.row,i=cell.i,sel=vi;
     if(qCur.kind==="links"){var done=row.applied===true;return '<div class="qrow'+(done?" done":"")+'"><div class="qmark">'+(done?"✓":"·")+'</div><div class="c"><b>[['+esc(row.target)+']]</b> · '+esc(String(row.confidence))+" · "+esc(row.direction)+'</div><input type="text" class="qwhy" data-i="'+i+'" placeholder="why（留空 = 不批准）" value="'+esc(row.why)+'"'+(done?" disabled":"")+">"+(done?"":'<button data-a="link" data-i="'+i+'">保存并应用</button>')+"</div>"}
     var vd=row.verdict||"";var opts=["","待复核","冲突","细化","无关"].map(function(v){return '<option value="'+v+'"'+(v===vd?" selected":"")+">"+(v===""?"（待判）":v)+"</option>"}).join("");
@@ -214,6 +214,8 @@ async function applyAllFilled(){var item=findQueue("links",qCur.path);if(qCur.ki
 
 byId.qarchive.onclick=async function(){if(!qCur.path){byId.qreport.textContent="先选一份队列";return}try{var r=await (await fetch("/api/queue/archive",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({kind:qCur.kind,path:qCur.path})})).json();if(!r.ok){byId.qreport.textContent="归档失败："+(r.error||"");return}byId.qreport.textContent="已归档到 "+r.to;qCur={kind:"",path:""};await loadQueues()}catch(err){byId.qreport.textContent="归档失败"}};
 async function scanQueues(kind,limit){byId.qreport.textContent=kind==="review"?("扫描中（只看最近修改的 "+limit+" 篇正式笔记，按「同一个参数、不同取值」配对）…"):("扫描中（按修改时间取最近 "+limit+" 篇正式笔记）…");try{var r=await (await fetch("/api/queue/scan",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({kind:kind,limit:limit})})).json();if(!r.ok){byId.qreport.textContent="扫描失败："+(r.error||"");return}byId.qreport.textContent=kind==="links"?("链接扫描：处理 "+r.notes+" 篇 · 候选 "+r.candidates+" · 排除 "+r.rejected+" · 队列 "+r.queues):("参数冲突扫描：看了最近修改的 "+r.notes+" 篇正式笔记 · 规则配对命中 "+(r.rows||0)+" 条 · 已确认冲突 "+(r.items||[]).reduce(function(t,x){return t+(x.conflicts||0)},0)+" 条 · 待复核 "+(r.nli||0)+" 条（等 NLI/agent 判过才进这份列表） · 队列 "+r.queues+" 份 · "+(r.empty||0)+" 篇没有可比的参数");qQueues.review=r.items||[];renderQueueList();renderQueue()}catch(err){byId.qreport.textContent="扫描失败"}}
+async function judgeQueue(){byId.qreport.textContent="自动判定中：先比对两边的数值与极性，判不了的留给 agent…";try{var r=await (await fetch("/api/queue/judge",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({kind:"review",path:qCur.path||""})})).json();if(!r.ok){byId.qreport.textContent="自动判定失败："+(r.error||"");return}qQueues.review=r.items||[];renderQueueList();renderQueue();byId.qreport.textContent="自动判定：处理 "+(r.judged||0)+" 条 · 冲突 "+(r.conflicts||0)+" 条 · 无关 "+(r.irrelevant||0)+" 条 · 细化 "+(r.refined||0)+" 条 · 仍待复核 "+(r.pending||0)+" 条（这部分要 agent 判）"}catch(err){byId.qreport.textContent="自动判定失败"}}
+byId.qjudge.onclick=function(){judgeQueue()};
 byId.qscanreview.onclick=function(){scanQueues("review",parseInt(byId.qscanlimit.value,10)||5)};
 byId.qshowall.onchange=function(){qSel=0;renderQueue()};
 var pCur="",pRows=[],curTab="notes";
