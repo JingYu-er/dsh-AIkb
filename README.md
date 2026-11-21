@@ -1,5 +1,9 @@
 # dsh-AIkb
 
+> The package id (npm name, plugin loader id, schema prefix) is the lowercase `dsh-aikb` — npm
+> forbids uppercase names. Everything a reader sees — the repository [JingYu-er/dsh-AIkb](https://github.com/JingYu-er/dsh-AIkb),
+> the docs and the panel title — is **dsh-AIkb**.
+
 An Obsidian-native knowledge base plugin for DeepSeek Harness.
 
 **It is a compiler, not a retriever.** A retriever answers and forgets; a
@@ -9,7 +13,7 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path and the compile loop are implemented and tested (129 unit tests):
+MVP read path and the compile loop are implemented and tested (149 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
@@ -57,7 +61,7 @@ the vault is modified; `.obsidian/` is never touched.
 1. Build:
 
    ```bash
-   cd dsh-aikb
+   cd dsh-AIkb
    npm install --ignore-scripts
    npm run build
    ```
@@ -66,7 +70,7 @@ the vault is modified; `.obsidian/` is never touched.
 
    ```jsonc
    {
-     "dependencies": { "dsh-aikb": "link:D:/path/to/dsh-aikb" },
+     "dependencies": { "dsh-aikb": "link:D:/path/to/dsh-AIkb" },
      "dsh": { "profile": { "bundles": [/* ..., */ "dsh-aikb"] } }
    }
    ```

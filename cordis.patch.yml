@@ -1,4 +1,4 @@
-# dsh-aikb bundle layer.
+# dsh-AIkb bundle layer (the plugin id stays the lowercase package name).
 # vaultPath stays unset on purpose: a shipped default would be wrong on every other
 # machine. Pin it here in the profile, or let discovery find the vault above the
 # working directory.

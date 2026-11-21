@@ -62,7 +62,7 @@ interfaces (DSH tools, formatting)   →  application (use cases)  →  domain (
 
 ## Repository split
 
-`dsh-aikb/` is its own git repository. The surrounding knowledge-base repository ignores `dsh-aikb/` and
+`dsh-AIkb/` is its own git repository. The surrounding knowledge-base repository ignores `dsh-AIkb/` and
 `temp/`; this repository ignores `node_modules/`, `dist/` and `temp/`. The vault repository is private
 by necessity (it contains copyrighted books and personal notes); this repository is intended to be
 public. Mixing them would either leak the vault or make the plugin unshareable.

@@ -1,6 +1,6 @@
 # Tools
 
-All tools are registered by `dsh-aikb` into the DSH tool registry. Every tool is
+All tools are registered by the **dsh-AIkb** bundle (`dsh-aikb` is the package id) into the DSH tool registry. Every tool is
 read-only unless explicitly stated, and none of them ever writes outside
 `inbox/` and `.wiki/`.
 

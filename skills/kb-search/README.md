@@ -1,6 +1,6 @@
 # kb-search
 
-Agent skill shipped with dsh-aikb: plan the query before calling `kb_query`.
+Agent skill shipped with dsh-AIkb: plan the query before calling `kb_query`.
 
 一次 kb_query 只能匹配一个词袋。这个 skill 规定：先拆 3–8 个高信号词，中文一轮、
 英文一轮分开查，按 path+page 合并，只对最好的 1–2 条展开章节，最后带 `path p.N` 引用。
