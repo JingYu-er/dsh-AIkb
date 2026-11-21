@@ -28,7 +28,7 @@ interface FakeSource {
 
 function fakeVault(root: string, sources: readonly FakeSource[]): QueryFs {
   const files = new Map<string, string>();
-  const catalog = { schema: 'dsh-kb/index@1', sources: {} as Record<string, unknown> };
+  const catalog = { schema: 'dsh-aikb/index@1', sources: {} as Record<string, unknown> };
   for (const source of sources) {
     catalog.sources[source.sha256] = { path: source.path, pages: source.pages, chunks: source.chunks.length };
     const lines = source.chunks.map((chunk) =>

@@ -9,7 +9,7 @@ import { appendLog, logLine, sanitiseLogField } from '../src/application/kb-log.
 import { isOrphanEligible, normaliseLinkTarget, runIndex, scanVault } from '../src/application/kb-index.js';
 
 async function makeVault(files: Record<string, string>): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), 'dsh-kb-index-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'dsh-aikb-index-'));
   for (const [rel, content] of Object.entries(files)) {
     const absolute = path.join(root, rel);
     await mkdir(path.dirname(absolute), { recursive: true });

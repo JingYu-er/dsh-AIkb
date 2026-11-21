@@ -69,7 +69,7 @@ test('kb_doctor reports index health: chunk files, vectors and cache', async () 
     await fsPromises.mkdir(nodePath.join(indexDir, 'chunks'), { recursive: true });
     await fsPromises.mkdir(nodePath.join(indexDir, 'vectors'), { recursive: true });
     await fsPromises.writeFile(nodePath.join(indexDir, 'catalog.json'), JSON.stringify({
-      schema: 'dsh-kb/index@1',
+      schema: 'dsh-aikb/index@1',
       sources: {
         aaa: { path: 'book.pdf', pages: 2, chunks: 2 },
         bbb: { path: 'book2.pdf', pages: 1, chunks: 1 },

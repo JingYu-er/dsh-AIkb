@@ -1,18 +1,18 @@
-# dsh-kb bundle layer.
+# dsh-aikb bundle layer.
 # vaultPath stays unset on purpose: a shipped default would be wrong on every other
 # machine. Pin it here in the profile, or let discovery find the vault above the
 # working directory.
 - insert:
-    - id: dsh-kb
-      name: dsh-kb
+    - id: dsh-aikb
+      name: dsh-aikb
       config:
         allowWrites: false
     # Agent skill shipped with this bundle (skills/kb-search). Resolved from the
     # installed package identity anchored at the DSH profile, never a path glued
     # onto baseUrl.
-    - id: dsh-kb-skills
+    - id: dsh-aikb-skills
       name: '@deepseek-ai/dsh-skill-filesystem'
       config:
-        providerName: dsh-kb-plugin
+        providerName: dsh-aikb-plugin
         includeDefaultRoots: false
-        bundledSkillDir: !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('dsh-kb/package.json')), 'skills')
+        bundledSkillDir: !!js process.getBuiltinModule('node:path').join(process.getBuiltinModule('node:path').dirname(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('dsh-aikb/package.json')), 'skills')

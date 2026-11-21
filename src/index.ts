@@ -26,7 +26,7 @@ import { createKbReviewTool } from './tools/kb-review.tool.js';
 import { createKbSuggestLinksTool } from './tools/kb-suggest-links.tool.js';
 
 /** Stable cordis plugin identity. */
-export const name = 'dsh-kb';
+export const name = 'dsh-aikb';
 
 /**
  * Cordis services this plugin needs before apply() runs. Declaring "tools" is what
@@ -111,7 +111,7 @@ export function resolveVaultRoot(config: KbPluginConfig, explicit?: string, cwd:
   const fromConfig = typeof config.vaultPath === 'string' && config.vaultPath.trim() !== '' ? config.vaultPath.trim() : undefined;
   const root = fromArgs ?? fromConfig ?? nearestVault(cwd);
   if (root === undefined) {
-    throw new Error('kb.vault.not-found: set vaultPath in the dsh-kb plugin config, pass vaultPath, or start DSH inside an Obsidian vault.');
+    throw new Error('kb.vault.not-found: set vaultPath in the dsh-aikb plugin config, pass vaultPath, or start DSH inside an Obsidian vault.');
   }
   return nodePath.resolve(root);
 }
@@ -172,7 +172,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
   })();
   if (ctx.tools === undefined || typeof ctx.tools.register !== 'function') {
     logBoot(bootRoot, 'apply-failed', 'tools service unavailable');
-    throw new Error('dsh-kb: the tools service is unavailable; declare inject = ["tools"] (see src/index.ts)');
+    throw new Error('dsh-aikb: the tools service is unavailable; declare inject = ["tools"] (see src/index.ts)');
   }
   const allowWrites = config.allowWrites === true;
   const resolveRoot = (explicit?: string): string => resolveVaultRoot(config, explicit);

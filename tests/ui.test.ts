@@ -26,7 +26,7 @@ test('the page script parses and every byId key it uses is registered', () => {
   assert.deepEqual(missing, [], 'byId keys used without being registered: ' + missing.join(', '));
 });
 
-const vault = mkdtempSync(join(tmpdir(), 'dsh-kb-ui-'));
+const vault = mkdtempSync(join(tmpdir(), 'dsh-aikb-ui-'));
 mkdirSync(join(vault, 'sub'), { recursive: true });
 mkdirSync(join(vault, 'inbox', '_compiled'), { recursive: true });
 writeFileSync(join(vault, 'a.md'), '# A' + NL + '[[c.pdf]] and [[missing.md]]' + NL);

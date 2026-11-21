@@ -1,6 +1,6 @@
 # Tools
 
-All tools are registered by `dsh-kb` into the DSH tool registry. Every tool is
+All tools are registered by `dsh-aikb` into the DSH tool registry. Every tool is
 read-only unless explicitly stated, and none of them ever writes outside
 `inbox/` and `.wiki/`.
 
@@ -42,7 +42,7 @@ Output: `ok`, `sources[]` (`path`, `format`, `bytes`, `sha256`, `modifiedAt`),
 `written`, `elapsedMs`.
 
 `write: true` requires `allowWrites` and writes `.wiki/books.jsonl`
-(`schema: dsh-kb/books@1`, one JSON object per line, sorted by path).
+(`schema: dsh-aikb/books@1`, one JSON object per line, sorted by path).
 
 Notes (`.md`) are deliberately excluded: they are already text and are read
 directly, not chunked.
@@ -98,7 +98,7 @@ private venv, then `python`; if none can import PyMuPDF it creates
 `<workspaceRoot>/.kb/venv` and installs PyMuPDF (mirror first, then pypi.org).
 
 Writes only `.wiki/index/chunks/<sha256>.jsonl` and `.wiki/index/catalog.json`
-(`schema: dsh-kb/index@1`). A failing book does not abort the batch; the error
+(`schema: dsh-aikb/index@1`). A failing book does not abort the batch; the error
 is recorded per book.
 
 ## kb_query
@@ -401,8 +401,8 @@ Output: `books[]` (`path`, `sha256`, `chunks`, `seconds`, `error`),
 
 Not a tool: an agent skill shipped with the plugin (`skills/kb-search/SKILL.md`),
 mounted by the `@deepseek-ai/dsh-skill-filesystem` provider in `cordis.patch.yml`
-(`providerName: dsh-kb-plugin`, `bundledSkillDir` resolved from
-`dsh-kb/package.json` so it works for `link:` installs).
+(`providerName: dsh-aikb-plugin`, `bundledSkillDir` resolved from
+`dsh-aikb/package.json` so it works for `link:` installs).
 
 It is guidance, not retrieval code: decompose the question into 3–8 terms, query
 in Chinese and English in separate `kb_query` calls, merge by `path` + `page`,

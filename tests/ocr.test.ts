@@ -18,7 +18,7 @@ function sparseFile(path: string, bytes: number): void {
 }
 
 test('ensureOcrModel reuses an existing graph without downloading', async () => {
-  const root = await tempRoot('dsh-kb-ocr-model-');
+  const root = await tempRoot('dsh-aikb-ocr-model-');
   const modelDir = nodePath.join(root, 'models');
   await mkdir(modelDir, { recursive: true });
   const target = nodePath.join(modelDir, DEFAULT_OCR_REC_FILE);
@@ -30,7 +30,7 @@ test('ensureOcrModel reuses an existing graph without downloading', async () => 
 });
 
 test('ensureOcrModel reports a missing graph when bootstrap is off', async () => {
-  const root = await tempRoot('dsh-kb-ocr-model-missing-');
+  const root = await tempRoot('dsh-aikb-ocr-model-missing-');
   const report = await ensureOcrModel({ workspaceRoot: root, bootstrap: false });
   assert.equal(report.ok, false);
   assert.equal(report.path, '');
@@ -38,7 +38,7 @@ test('ensureOcrModel reports a missing graph when bootstrap is off', async () =>
 });
 
 test('ocrPdf forwards the recognizer path and splits journal blocks', async () => {
-  const root = await tempRoot('dsh-kb-ocr-run-');
+  const root = await tempRoot('dsh-aikb-ocr-run-');
   const journal = nodePath.join(root, 'journal.jsonl');
   const calls: (readonly string[])[] = [];
   const run: CommandRunner = async (_python, args) => {

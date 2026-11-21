@@ -57,7 +57,7 @@ export interface InventoryOptions {
 }
 
 export const BOOK_MANIFEST_PATH = '.wiki/books.jsonl';
-export const BOOK_MANIFEST_SCHEMA = 'dsh-kb/books@1';
+export const BOOK_MANIFEST_SCHEMA = 'dsh-aikb/books@1';
 /** Binary documents that must be parsed into chunks. Notes are already text and are not sources. */
 const SOURCE_EXTENSIONS = new Set(['pdf', 'epub', 'djvu']);
 const LINE_FEED = String.fromCharCode(10);

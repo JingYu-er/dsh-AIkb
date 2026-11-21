@@ -215,15 +215,18 @@ const pageFile = fileURLToPath(new URL('./kb-ui.html', import.meta.url));
 const page = () => readFileSync(pageFile, 'utf8');
 
 /**
- * One workspace, one vault: the nearest .dsh-kb.json above the open file (or the workspace
+ * One workspace, one vault: the nearest .dsh-aikb.json above the open file (or the workspace
  * directory) wins; KB_VAULT is the explicit override; otherwise the default vault.
  */
 const bindingAt = (dir) => {
-  try {
-    const config = JSON.parse(readFileSync(join(dir, '.dsh-kb.json'), 'utf8'));
-    if (typeof config.vault === 'string' && config.vault.trim() !== '') return join(dir, config.vault);
-  } catch {
-    // no binding at this level
+  // .dsh-kb.json is the pre-rename name: reading it keeps existing workspace bindings working.
+  for (const name of ['.dsh-aikb.json', '.dsh-kb.json']) {
+    try {
+      const config = JSON.parse(readFileSync(join(dir, name), 'utf8'));
+      if (typeof config.vault === 'string' && config.vault.trim() !== '') return join(dir, config.vault);
+    } catch {
+      // no binding at this level
+    }
   }
   return undefined;
 };

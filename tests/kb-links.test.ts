@@ -18,7 +18,7 @@ import {
 } from '../src/application/kb-links.js';
 
 async function makeVault(files: Record<string, string>): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), 'dsh-kb-links-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'dsh-aikb-links-'));
   for (const [rel, content] of Object.entries(files)) {
     const absolute = path.join(root, rel);
     await mkdir(path.dirname(absolute), { recursive: true });

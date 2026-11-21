@@ -144,7 +144,7 @@ export function createKbCompileTool(deps: KbCompileDeps) {
           try {
             await appendLog(new NodeNotesFs(root), 'compile', 'inbox/_compiled', report.totals.compiled + ' draft(s) compiled');
           } catch (error) {
-            console.warn('[dsh-kb] log append failed: ' + (error instanceof Error ? error.message : String(error)));
+            console.warn('[dsh-aikb] log append failed: ' + (error instanceof Error ? error.message : String(error)));
           }
         }
         return report;

@@ -27,7 +27,7 @@ function fakeFs(chunks: { id: string; page: number; text: string }[]): QueryFs {
   const files = new Map<string, string>();
   files.set(
     INDEX_CATALOG_PATH,
-    JSON.stringify({ schema: 'dsh-kb/index@1', sources: { a: { path: 'book-a.pdf', pages: 1, chunks: chunks.length } } }),
+    JSON.stringify({ schema: 'dsh-aikb/index@1', sources: { a: { path: 'book-a.pdf', pages: 1, chunks: chunks.length } } }),
   );
   files.set(chunkFileOf('a'), chunks.map((chunk) => JSON.stringify({ sourceId: 'a', section: '', tokens: 1, ...chunk })).join('\n') + '\n');
   return {

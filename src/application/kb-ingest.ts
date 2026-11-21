@@ -99,7 +99,7 @@ export interface IngestReport {
 
 export const INDEX_ROOT = '.wiki/index';
 export const INDEX_CATALOG_PATH = INDEX_ROOT + '/catalog.json';
-export const INDEX_SCHEMA = 'dsh-kb/index@1';
+export const INDEX_SCHEMA = 'dsh-aikb/index@1';
 export const MANIFEST_PATH = '.wiki/books.jsonl';
 
 function densityOf(book: ExtractedBook): { textChars: number; charsPerPage: number } {

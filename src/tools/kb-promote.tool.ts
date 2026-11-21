@@ -160,7 +160,7 @@ export function createKbPromoteTool(deps: KbPromoteDeps) {
           try {
             await appendLog(notesFs, 'promote', configured, changed + ' note(s) promoted (' + report.totals.created + ' new, ' + report.totals.updated + ' updated)');
           } catch (error) {
-            console.warn('[dsh-kb] log append failed: ' + (error instanceof Error ? error.message : String(error)));
+            console.warn('[dsh-aikb] log append failed: ' + (error instanceof Error ? error.message : String(error)));
           }
           // Best-effort: seed a contradiction review queue for every note this run wrote.
           // The queue lives in inbox/review/; the promoted note itself is never touched again.

@@ -9,7 +9,7 @@ const BASE = '项目/砖块/7-模拟电子技术基础（第五版）.pdf';
 
 function fakeVault(root: string): QueryFs {
   const catalog = {
-    schema: 'dsh-kb/index@1',
+    schema: 'dsh-aikb/index@1',
     sources: { [SHA]: { path: BASE, pages: 30, chunks: 2 } },
   };
   const chunks = [

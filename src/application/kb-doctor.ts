@@ -132,7 +132,7 @@ export function failedDoctorReport(root: string, error: unknown): DoctorReport {
     layout: { inbox: false, wiki: false, git: false },
     booksManifest: { path: '.wiki/books.jsonl', present: false, entries: 0 },
     writesEnabled: false,
-    nextActions: ['Set vaultPath in the dsh-kb plugin config, or pass vaultPath explicitly.'],
+    nextActions: ['Set vaultPath in the dsh-aikb plugin config, or pass vaultPath explicitly.'],
   };
 }
 

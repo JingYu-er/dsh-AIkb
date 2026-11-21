@@ -1,4 +1,4 @@
-# dsh-kb
+# dsh-AIkb
 
 An Obsidian-native knowledge base plugin for DeepSeek Harness.
 
@@ -57,7 +57,7 @@ the vault is modified; `.obsidian/` is never touched.
 1. Build:
 
    ```bash
-   cd dsh-kb
+   cd dsh-aikb
    npm install --ignore-scripts
    npm run build
    ```
@@ -66,8 +66,8 @@ the vault is modified; `.obsidian/` is never touched.
 
    ```jsonc
    {
-     "dependencies": { "dsh-kb": "link:D:/path/to/dsh-kb" },
-     "dsh": { "profile": { "bundles": [/* ..., */ "dsh-kb"] } }
+     "dependencies": { "dsh-aikb": "link:D:/path/to/dsh-aikb" },
+     "dsh": { "profile": { "bundles": [/* ..., */ "dsh-aikb"] } }
    }
    ```
 
@@ -77,8 +77,8 @@ Configure the machine-specific parts in the profile's `cordis.patch.yml`
 (the vault path has no sane default, so it is never shipped):
 
 ```yaml
-- id: dsh-kb
-  name: dsh-kb
+- id: dsh-aikb
+  name: dsh-aikb
   config:
     vaultPath: D:/path/to/MyObsidian
     workspaceRoot: D:/path/to/workspace   # venv lives in <workspaceRoot>/.kb/venv

@@ -1,6 +1,6 @@
 {
-  "name": "dsh-kb",
-  "version": "0.1.0",
+  "name": "dsh-aikb",
+  "version": "0.1.1",
   "private": true,
   "description": "Obsidian-native knowledge base for DeepSeek Harness: a compiler, not a retriever.",
   "license": "Apache-2.0",

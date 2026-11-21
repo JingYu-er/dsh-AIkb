@@ -3,7 +3,7 @@ import { isExpandablePair } from '../domain/glossary.js';
 import type { HarvestedTerm } from '../domain/glossary-harvest.js';
 
 export const GLOSSARY_PATH = '.wiki/index/glossary.json';
-export const GLOSSARY_SCHEMA = 'dsh-kb/glossary@1';
+export const GLOSSARY_SCHEMA = 'dsh-aikb/glossary@1';
 /** Beyond this the query expansion starts adding more noise than signal. */
 const MAX_ENTRIES = 4000;
 

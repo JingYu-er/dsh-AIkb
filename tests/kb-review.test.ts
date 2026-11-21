@@ -8,7 +8,7 @@ import { NodeNotesFs } from '../src/adapters/fs/notes-fs.js';
 import { claimLike, extractStatements, parseReviewQueue, reviewNote, reviewNotes, REVIEW_QUEUE_DIR } from '../src/application/kb-review.js';
 
 async function makeVault(files: Record<string, string>): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), 'dsh-kb-review-'));
+  const root = await mkdtemp(path.join(tmpdir(), 'dsh-aikb-review-'));
   for (const [rel, body] of Object.entries(files)) {
     const absolute = path.join(root, rel);
     await mkdir(path.dirname(absolute), { recursive: true });

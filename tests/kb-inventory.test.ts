@@ -9,7 +9,7 @@ import { NodeVaultWriter } from '../src/adapters/fs/node-vault-writer.js';
 import { runInventory } from '../src/application/kb-inventory.js';
 
 async function makeVault(): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), 'dsh-kb-inv-'));
+  const root = await mkdtemp(join(tmpdir(), 'dsh-aikb-inv-'));
   await mkdir(join(root, '.obsidian'), { recursive: true });
   await mkdir(join(root, '.wiki'), { recursive: true });
   await mkdir(join(root, '.agents', 'skills'), { recursive: true });

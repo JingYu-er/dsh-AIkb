@@ -31,8 +31,8 @@ describe('shipped kb-search skill', () => {
   it('mounts a skill provider from the plugin bundle', () => {
     const patch = readFileSync(patchPath, 'utf8');
     assert.match(patch, /dsh-skill-filesystem/);
-    assert.match(patch, /providerName: dsh-kb-plugin/);
-    assert.match(patch, /resolve\('dsh-kb\/package\.json'\)/);
+    assert.match(patch, /providerName: dsh-aikb-plugin/);
+    assert.match(patch, /resolve\('dsh-aikb\/package\.json'\)/);
     assert.match(patch, /'skills'/);
   });
 });
