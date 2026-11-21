@@ -18,6 +18,7 @@ import { createKbEmbedTool } from './tools/kb-embed.tool.js';
 import { createKbExportPackTool } from './tools/kb-export-pack.tool.js';
 import { createKbInitTool } from './tools/kb-init.tool.js';
 import { createKbJobsTool } from './tools/kb-jobs.tool.js';
+import { createKbFeedbackTool } from './tools/kb-feedback.tool.js';
 import { createKbHistoryTool } from './tools/kb-history.tool.js';
 import { createKbCompileTool } from './tools/kb-compile.tool.js';
 import { createKbIngestTool } from './tools/kb-ingest.tool.js';
@@ -383,9 +384,10 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
       }),
     );
     registerTool(ctx, createKbHistoryTool({ resolveRoot, allowWrites: () => allowWrites }));
+    registerTool(ctx, createKbFeedbackTool({ resolveRoot, allowWrites: () => allowWrites }));
   } catch (error) {
     logBoot(workspaceRoot, 'apply-failed', error instanceof Error ? error.message : String(error));
     throw error;
   }
-  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_compile kb_promote kb_suggest_links kb_index kb_link_review kb_link_apply kb_ingest kb_query kb_embed kb_export_pack kb_init kb_jobs kb_history');
+  logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_compile kb_promote kb_suggest_links kb_index kb_link_review kb_link_apply kb_ingest kb_query kb_embed kb_export_pack kb_init kb_jobs kb_history kb_feedback');
 }

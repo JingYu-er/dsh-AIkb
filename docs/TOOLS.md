@@ -528,6 +528,26 @@ second `kb_history` call. Restoring needs `allowWrites`.
 | `kb.history.missing` | No entry with that stamp. |
 | `kb.history.outside-vault` | The note path resolves outside the vault. |
 | `kb.history.invalid-note` | `note` is empty. |
+## kb_feedback
+
+The page feedback queue: `inbox/feedback.md`, one dated line per complaint, so a
+later pass can fix the page and tick the box. Rows are appended, never rewritten
+away; only the `[ ]` / `[x]` state changes.
+
+Input: `{ action?: "list" | "add" | "done", note?: string, text?: string, index?: number, vaultPath?: string }`
+
+Row shape: `- [ ] 2026-01-02T03:04:05Z · [[学习/note.md]] — what is wrong`. `add`
+needs `allowWrites` and a non-empty note and text (2000 bytes max; whitespace is
+collapsed to single spaces). `list` returns rows in file order with `index`, `done`,
+`at`, `note` and `text`; `done` flips the box of the row at that index.
+
+| Code | Meaning |
+| --- | --- |
+| `kb.feedback.read-only` | `add` or `done` attempted while writes are off. |
+| `kb.feedback.empty` | `note` or `text` is empty. |
+| `kb.feedback.too-large` | The text exceeds 2000 bytes. |
+| `kb.feedback.missing-index` | No row with that index (or no queue file yet). |
+| `kb.feedback.write-failed` | The queue could not be written; the message carries the cause. |
 ## kb-search skill
 
 Not a tool: an agent skill shipped with the plugin (`skills/kb-search/SKILL.md`),

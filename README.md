@@ -13,7 +13,7 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path and the compile loop are implemented and tested (229 unit tests):
+MVP read path and the compile loop are implemented and tested (236 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
@@ -33,6 +33,7 @@ MVP read path and the compile loop are implemented and tested (229 unit tests):
 | `kb_init` | Create a vault from nothing: Obsidian marker, folder layout for a template, vault sheet (`schema.md`), README/index, then register it in the config (optionally as the active one). Refuses a non-empty directory and leaves it untouched. |
 | `kb_jobs` | Durable job queue in `<toolchainDir>/jobs/queue.json`: list or summarise, enqueue an ingest/judge/embed job, cancel, recover jobs a crash left running, prune finished history. A failed job retries up to `maxAttempts`; pending, running and failed records are never pruned. |
 | `kb_history` | Per-note version history under `.dsh-aikb/history`: a save keeps the text it overwrites (newest 20), `read` returns one version, `restore` puts it back and first captures what it replaces. |
+| `kb_feedback` | Page feedback queue in `inbox/feedback.md`: append a dated row for a note, list rows in file order, mark one done. Rows keep their history; only the checkbox changes. |
 | `kb_review` | Deterministic contradiction candidates: take up to 3 similar older notes, extract conclusion-like paragraphs into `inbox/review/` queues with an empty `判定` column (冲突 / 细化 / 无关); preview by default, never edits notes. |
 
 Writes are off by default and, when enabled, are confined to `inbox/`, `.wiki/`,

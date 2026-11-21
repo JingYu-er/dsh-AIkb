@@ -18,6 +18,7 @@ const { configFilePath, loadConfig, readiness, resolveVaultPath, saveConfig, too
 const { readVaultSchema, schemaTemplate, writeVaultSchema } = await import(distUrl('application/vault-schema.js'));
 const { createVault, parseTemplate, planRegistration } = await import(distUrl('application/kb-init.js'));
 const { captureHistory, listHistory, readHistoryEntry, restoreHistory } = await import(distUrl('application/vault-history.js'));
+const { appendFeedback, markFeedbackDone, readFeedback } = await import(distUrl('application/vault-feedback.js'));
 const { cancelJob, claimNextJob, enqueueJob, finishJob, loadQueue, pruneQueue, recoverQueue, saveQueue, queueSummary } = await import(distUrl('application/job-queue.js'));
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
@@ -1151,6 +1152,36 @@ const createUiServer = () => createServer(async (req, res) => {
       }
       const after = await loadQueue(jobsDir());
       return send(200, 'application/json', JSON.stringify({ ok: true, path: queuePath, ran: done, summary: queueSummary(after.queue) }));
+    }
+    if (url.pathname === '/api/feedback' && req.method === 'GET') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const report = await readFeedback(vault);
+      const loaded = loadConfigCached();
+      return send(200, 'application/json', JSON.stringify({ ok: true, ...report, allowWrites: loaded?.config.allowWrites === true }));
+    }
+    if (url.pathname === '/api/feedback' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const loaded = loadConfigCached();
+      const written = await appendFeedback(vault, { note: String(parsed.path ?? ''), text: String(parsed.text ?? '') }, { allowWrites: loaded?.config.allowWrites === true });
+      if (!written.ok) {
+        const status = written.error?.code === 'kb.feedback.read-only' ? 403 : 400;
+        return send(status, 'application/json', JSON.stringify({ ok: false, error: written.error }));
+      }
+      const report = await readFeedback(vault);
+      return send(200, 'application/json', JSON.stringify({ ok: true, path: report.path, index: written.index, rows: report.rows }));
+    }
+    if (url.pathname === '/api/feedback/done' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const loaded = loadConfigCached();
+      const marked = await markFeedbackDone(vault, Number(parsed.index ?? -1), { allowWrites: loaded?.config.allowWrites === true });
+      if (!marked.ok) {
+        const status = marked.error?.code === 'kb.feedback.read-only' ? 403 : 400;
+        return send(status, 'application/json', JSON.stringify({ ok: false, error: marked.error }));
+      }
+      const report = await readFeedback(vault);
+      return send(200, 'application/json', JSON.stringify({ ok: true, path: report.path, rows: report.rows }));
     }
     if (url.pathname === '/api/history' && req.method === 'GET') {
       const vault = vaultFor(url.searchParams.get('address') || '');

@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -220,6 +220,28 @@ test('history API: a save snapshots the old text and restore puts it back', asyn
   assert.equal(restored.body.text, 'one' + "\n");
   const afterRestore = await get('/api/history?address=b&path=' + note);
   assert.equal(afterRestore.entries.length, 2, 'a restore first captures what it overwrites');
+});
+
+test('feedback API: append a row, list it, mark it done', async () => {
+  process.env.KB_CONFIG = configPath;
+  const current = await get('/api/config');
+  if (current.config.allowWrites !== true) {
+    const on = await post('/api/config', { allowWrites: true, expectRevision: current.revision });
+    assert.equal(on.status, 200);
+  }
+  const added = await post('/api/feedback?address=b', { path: 'only-b.md', text: '第二段引用的页码不对' });
+  assert.equal(added.status, 200);
+  assert.equal(added.body.rows.length, 1);
+  assert.equal(added.body.rows[0].done, false);
+
+  const listed = await get('/api/feedback?address=b');
+  assert.equal(listed.rows.length, 1);
+  assert.equal(listed.rows[0].note, 'only-b.md');
+
+  const done = await post('/api/feedback/done?address=b', { index: 0 });
+  assert.equal(done.status, 200);
+  assert.equal(done.body.rows[0].done, true);
+  assert.ok(readFileSync(join(vaultB, 'inbox', 'feedback.md'), 'utf8').includes('- [x]'), 'the box is ticked in the file, not only in the response');
 });
 
 after(async () => {

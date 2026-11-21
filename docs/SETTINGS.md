@@ -46,6 +46,10 @@ dsh-AIkb 的配置只有一份来源：`~/.dsh-aikb/config.json`（可用环境�
 
 笔记页右上角有「版本历史」：每次保存都会先把被覆盖的正文存进 `<vault>/.dsh-aikb/history/`（每篇保留最近 20 版）。下拉选一版可以「载入这一版」（只进编辑器，点保存才写回）或「恢复这一版」（直接写回，并先把当前内容存成新版本，所以恢复了也能再退回去）。
 
+## 页面反馈
+
+笔记页右上角「反馈」按钮：选中一篇笔记后点一下，写一句哪里不对，会追加到本库的 `inbox/feedback.md`。配置页底部列出这些反馈，处理完点「标为已处理」把 `[ ]` 改成 `[x]`；行不会被删除，所以缺陷记录留在库里，人和 AI 都能读到。
+
 ## 工具链目录
 
 所有重产物都在一个根下，两个库不会各下一份模型：
@@ -99,6 +103,9 @@ dsh-AIkb 的配置只有一份来源：`~/.dsh-aikb/config.json`（可用环境�
 | `GET /api/history?address=&path=` | 某篇笔记的历史版本清单（最新在前） |
 | `GET /api/history/entry?address=&path=&stamp=` | 读回某一版正文 |
 | `POST /api/history/restore` | `{path, stamp}` 恢复；先把当前内容存成新版本，只读模式 403 |
+| `GET /api/feedback` | 页面反馈清单（`path`、`exists`、`rows`、`allowWrites`） |
+| `POST /api/feedback` | `{path, text}` 追加一条反馈；只读模式 403，空文本 400 |
+| `POST /api/feedback/done` | `{index}` 把某条反馈的 `[ ]` 改成 `[x]` |
 
 ## 旧配置迁移
 
