@@ -15,6 +15,7 @@ import type { KbConfig, KbConfigOverrides } from './application/config-store.js'
 import { registerTool } from './tools/definition.js';
 import { createKbDoctorTool } from './tools/kb-doctor.tool.js';
 import { createKbEmbedTool } from './tools/kb-embed.tool.js';
+import { createKbExportPackTool } from './tools/kb-export-pack.tool.js';
 import { createKbCompileTool } from './tools/kb-compile.tool.js';
 import { createKbIngestTool } from './tools/kb-ingest.tool.js';
 import { createKbIndexTool } from './tools/kb-index.tool.js';
@@ -357,6 +358,17 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
         workspaceRoot: () => workspaceRoot,
         allowWrites: () => allowWrites,
         prepareEmbedding: () => embeddingEnv(),
+      }),
+    );
+    registerTool(
+      ctx,
+      createKbExportPackTool({
+        resolveRoot,
+        allowWrites,
+        // An explicit plugin config wins; otherwise the reloadable file config decides.
+        packDir: () => (config.packDir !== undefined && config.packDir.trim() !== ''
+          ? nodePath.resolve(config.packDir.trim())
+          : configNow().packDir),
       }),
     );
   } catch (error) {

@@ -397,6 +397,48 @@ Input: `{ vaultPath?: string, limit?: number, force?: boolean }`
 Output: `books[]` (`path`, `sha256`, `chunks`, `seconds`, `error`),
 `totals` (`books`, `chunks`, `upToDate`), `model`.
 
+## kb_export_pack
+
+Export the compiled index (not the vault) as a portable knowledge pack: three
+files a reader or another agent can search with nothing but `grep`.
+
+Input: `{ vaultPath?: string, name?: string, outDir?: string }`
+
+The destination is `outDir` when given (absolute, or relative to the configured
+pack directory), otherwise `<packDir>/<name | pack-YYYYMMDD-HHmmss>`. Writing is
+required, so `allowWrites` must be true.
+
+Layout, exactly:
+
+```
+manifest.json   schema dsh-aikb/pack@1, pack name, generatedAt, plugin name+version
+                (read from package.json), vault name+absolute path, counts, and
+                sources[] with path / sha256 / pages / chunks
+chunks.jsonl    one JSON object per line: {"path","page","section","text"}
+SKILL.md        how to search the pack: grep exact identifiers first, then
+                keywords; cite path#page; the pack is evidence, never copied
+                back into notes
+README.md       only when the pack has gaps (missing chunk files, unparsable
+                lines, catalog/source count mismatch); absent otherwise
+```
+
+Deterministic: sources and chunks are sorted by path, then page, then ingest
+order, so two exports of one index differ only in `manifest.generatedAt`. A
+source whose chunk file is missing is listed with `chunks: 0` and reported in
+`warnings`; it does not abort the export.
+
+Output: `ok`, `packDir`, `files[]` (`name`, `bytes`), `counts` (`sources`,
+`chunks`), `warnings[]`; on refusal `ok: false` with `error` (`code`, `message`)
+and nothing written.
+
+| Code | Meaning |
+| --- | --- |
+| `kb.pack.read-only` | `allowWrites` is false. |
+| `kb.pack.no-pack-dir` | No `packDir` and no absolute `outDir`; set the pack directory on the KB settings page. |
+| `kb.pack.empty-index` | The index holds no chunks; run `kb_ingest` first. |
+| `kb.pack.corrupt-index` | `catalog.json` is not readable JSON; rebuild with `kb_ingest`. |
+| `kb.pack.invalid-name` | `name` is not a single directory name. |
+
 ## kb-search skill
 
 Not a tool: an agent skill shipped with the plugin (`skills/kb-search/SKILL.md`),
