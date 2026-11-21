@@ -373,4 +373,4 @@ Hard boundaries, enforced in code rather than in prompts:
 
 ## License
 
-MIT © 2026 JingYu
+[Apache License 2.0](LICENSE) © 2026 JingYu
