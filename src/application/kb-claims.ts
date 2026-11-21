@@ -1,0 +1,224 @@
+/**
+ * Claim-level contradiction detection.
+ *
+ * Embedding similarity answers "are these two notes about the same thing", which is not
+ * what a contradiction queue needs: two tutorials about the same topic share plenty of
+ * words and never disagree. A contradiction needs a shared attribute carrying two
+ * incompatible values ("稳压值 3.3 V" vs "稳压值 5 V"), so this module extracts
+ * (key, value) claims and only calls a conflict when the same key holds differing values
+ * in the same unit family.
+ */
+
+export interface Claim {
+  /** Normalized attribute name, e.g. "波特率" or "baud". */
+  readonly key: string;
+  /** Attribute as written in the note. */
+  readonly rawKey: string;
+  /** Value as written, e.g. "3.3 V", "115200", "必须". */
+  readonly value: string;
+  /** The sentence (or table row) the claim was read from. */
+  readonly sentence: string;
+}
+
+interface UnitInfo {
+  readonly family: string;
+  readonly factor: number;
+}
+
+/** Longest unit spellings first so "ms" never parses as "m". */
+const UNITS: readonly (readonly [string, UnitInfo])[] = [
+  ['ghz', { family: 'frequency', factor: 1e9 }],
+  ['mhz', { family: 'frequency', factor: 1e6 }],
+  ['khz', { family: 'frequency', factor: 1e3 }],
+  ['hz', { family: 'frequency', factor: 1 }],
+  ['mω', { family: 'resistance', factor: 1e6 }],
+  ['kω', { family: 'resistance', factor: 1e3 }],
+  ['ω', { family: 'resistance', factor: 1 }],
+  ['mv', { family: 'voltage', factor: 1e-3 }],
+  ['kv', { family: 'voltage', factor: 1e3 }],
+  ['v', { family: 'voltage', factor: 1 }],
+  ['ma', { family: 'current', factor: 1e-3 }],
+  ['ua', { family: 'current', factor: 1e-6 }],
+  ['a', { family: 'current', factor: 1 }],
+  ['uf', { family: 'capacitance', factor: 1e-6 }],
+  ['nf', { family: 'capacitance', factor: 1e-9 }],
+  ['pf', { family: 'capacitance', factor: 1e-12 }],
+  ['f', { family: 'capacitance', factor: 1 }],
+  ['mh', { family: 'inductance', factor: 1e-3 }],
+  ['uh', { family: 'inductance', factor: 1e-6 }],
+  ['h', { family: 'inductance', factor: 1 }],
+  ['ms', { family: 'time', factor: 1e-3 }],
+  ['us', { family: 'time', factor: 1e-6 }],
+  ['ns', { family: 'time', factor: 1e-9 }],
+  ['s', { family: 'time', factor: 1 }],
+  ['mm', { family: 'length', factor: 1e-3 }],
+  ['cm', { family: 'length', factor: 1e-2 }],
+  ['m', { family: 'length', factor: 1 }],
+  ['%', { family: 'percent', factor: 1 }],
+  ['℃', { family: 'temperature', factor: 1 }],
+  ['°c', { family: 'temperature', factor: 1 }],
+];
+
+/** Keys that describe the file, never a technical claim. */
+const STOP_KEYS = new Set([
+  'title', '标题', 'tags', 'tag', 'type', 'date', 'created', 'updated',
+  '创建时间', '修改时间', '来源', 'source', 'author', '作者', '链接', 'url', 'note', '备注',
+  // Table column headers that name a column, not a parameter.
+  '属性', '参数', '符号', '说明', '示例', '含义', '描述', '名称', '类型', '作用', '功能',
+  '项目', '型号', '器件', '特性', '单位', '值', '方法', '条件', '用途', '定义', '备注',
+]);
+
+/** A parameter name is words/digits, not LaTeX, code, markup or a table separator. */
+const KEY_SHAPE = /^[A-Za-z0-9\u4e00-\u9fa5][A-Za-z0-9\u4e00-\u9fa5 _./\-]{1,23}$/;
+
+const KEY_MAX = 24;
+const SENTENCE_MAX = 200;
+/** Backtick, asterisk, underscore, tilde: markdown emphasis the claim value does not need. */
+const STRIP_MARKUP = /[\x60*_~]/g;
+const FENCE = /^\s*(\x60{3,}|~{3,})/;
+
+function normalizeKey(raw: string): string {
+  return raw
+    .replace(/^[\s>*\-#|]+/, '')
+    .replace(STRIP_MARKUP, '')
+    .replace(/[（(].*?[)）]$/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function sentenceOf(line: string): string {
+  const trimmed = line.replace(/^[\s>*\-#|]+/, '').trim();
+  return trimmed.length <= SENTENCE_MAX ? trimmed : trimmed.slice(0, SENTENCE_MAX);
+}
+
+/** Split a numeric value such as "3.3 V" or "1000Hz" into base units. */
+function numericValue(value: string): { family: string; base: number } | undefined {
+  const match = /^(-?\d+(?:\.\d+)?)\s*([a-zA-ZωΩ℃%°µ]+)?$/.exec(value.trim());
+  if (match === null) return undefined;
+  const number = Number(match[1]);
+  if (!Number.isFinite(number)) return undefined;
+  const unit = (match[2] ?? '').toLowerCase().replace(/µ/g, 'u');
+  if (unit === '') return { family: '', base: number };
+  for (const [spelling, info] of UNITS) {
+    if (unit === spelling) return { family: info.family, base: number * info.factor };
+  }
+  return undefined;
+}
+
+function unitOf(value: string): string {
+  const match = /^[^\d]*([a-zA-ZωΩ℃%°µ]+)$/.exec(value.trim());
+  return (match?.[1] ?? '').toLowerCase().replace(/µ/g, 'u');
+}
+
+function pushClaim(out: Claim[], rawKey: string, rawValue: string, sentence: string): void {
+  const key = normalizeKey(rawKey);
+  const value = rawValue.replace(STRIP_MARKUP, '').trim().replace(/\s+/g, ' ');
+  if (key.length < 2 || key.length > KEY_MAX) return;
+  if (!KEY_SHAPE.test(key)) return;
+  if (/^\d{4}-\d{1,2}-\d{1,2}/.test(key)) return;
+  if (STOP_KEYS.has(key)) return;
+  if (value === '' || value.length > 40) return;
+  // "引脚 | 说明" style rows name their columns rather than assert a value.
+  if (STOP_KEYS.has(value.trim().toLowerCase())) return;
+  if (!/[0-9]/.test(value) && value.length > 24) return;
+  out.push({ key, rawKey: rawKey.trim(), value, sentence: sentenceOf(sentence) });
+}
+
+/** key: value / key = value / key：value (single line, short value). */
+function extractAssignments(line: string, out: Claim[]): void {
+  const match = /^([^:：=]{2,24}?)\s*[:：=]\s*(\S.{0,38})$/.exec(line.trim());
+  if (match === null) return;
+  const value = (match[2] ?? '').trim().replace(/[，。；;,]$/, '');
+  if (value === '' || /^https?:/i.test(value)) return;
+  const interesting = /[0-9]/.test(value) || /^(\d+(?:\.\d+)?\s*[a-zA-ZωΩ℃%°µ]+)$/.test(value) ||
+    /^(是|否|支持|不支持|能|不能|可以|不要|禁止|必须)/.test(value);
+  if (!interesting) return;
+  pushClaim(out, match[1] ?? '', value, line);
+}
+
+/** Markdown table row: | 参数 | 值 | */
+function extractTableRow(line: string, out: Claim[]): void {
+  if (!line.trim().startsWith('|')) return;
+  const cells = line.split('|').slice(1, -1).map((cell) => cell.trim());
+  if (cells.length < 2 || cells.length > 4) return;
+  if (cells.every((cell) => /^:?-{2,}:?$/.test(cell.replace(/\s/g, '')))) return;
+  const [key, value] = cells;
+  if ((value ?? '') === '' || (value ?? '').length > 40) return;
+  pushClaim(out, key ?? '', value ?? '', cells.join(' | '));
+}
+
+/** 参数 X 为/取/设为 3.3 V */
+function extractCopula(line: string, out: Claim[]): void {
+  const pattern = /([\u4e00-\u9fa5A-Za-z0-9_+#.\-]{1,18})\s*(?:为|是|取|等于|设为|设置为)\s*(-?\d+(?:\.\d+)?\s*(?:[a-zA-ZωΩ℃%°µ]+)?)/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(line)) !== null) {
+    pushClaim(out, match[1] ?? '', match[2] ?? '', line);
+  }
+}
+
+/** Read every claim a note body asserts. */
+export function extractClaims(body: string): Claim[] {
+  const out: Claim[] = [];
+  const lines = body.split(/\r?\n/);
+  // A table's header row names the columns; its values live in the rows below the separator.
+  const isSeparator = (text: string): boolean => {
+    if (!text.trim().startsWith('|')) return false;
+    const cells = text.split('|').slice(1, -1).map((cell) => cell.trim()).filter((cell) => cell !== '');
+    return cells.length >= 2 && cells.every((cell) => /^:?-{2,}:?$/.test(cell));
+  };
+  let fence = false;
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index] ?? '';
+    if (FENCE.test(rawLine)) {
+      fence = !fence;
+      continue;
+    }
+    if (fence) continue;
+    const line = rawLine.trim();
+    if (line === '' || line.startsWith('!') || line.startsWith('>')) continue;
+    if (isSeparator(line) || isSeparator(lines[index + 1] ?? '')) continue;
+    extractTableRow(line, out);
+    extractAssignments(line, out);
+    extractCopula(line, out);
+  }
+  return out;
+}
+
+/**
+ * Explain why two claims about the same attribute cannot both hold, or return
+ * undefined when they are compatible (equal, convertible, or one refines the other).
+ */
+export function claimConflict(left: Claim, right: Claim): string | undefined {
+  if (left.key !== right.key) return undefined;
+  const numA = numericValue(left.value);
+  const numB = numericValue(right.value);
+  if (numA !== undefined && numB !== undefined) {
+    if (numA.family !== numB.family) return undefined;
+    const scale = Math.max(1, Math.abs(numA.base), Math.abs(numB.base));
+    if (Math.abs(numA.base - numB.base) <= 1e-9 * scale) return undefined;
+    return '同一个参数「' + left.rawKey.trim() + '」两边取值不同：' + left.value + ' vs ' + right.value;
+  }
+  const lv = left.value.trim().toLowerCase();
+  const rv = right.value.trim().toLowerCase();
+  if (lv === rv) return undefined;
+  for (const prefix of ['不', '禁止', '勿', '非']) {
+    if (lv === prefix + rv || rv === prefix + lv) {
+      return '「' + left.rawKey.trim() + '」一边是「' + left.value + '」，一边是「' + right.value + '」';
+    }
+  }
+  // Free-text values are paraphrases far more often than contradictions ("描述" vs "说明"),
+  // so without a negation flip or two numbers there is nothing honest to report here.
+  return undefined;
+}
+
+/** Group claims by key so only same-attribute claims are ever compared. */
+export function claimsByKey<T extends Claim>(claims: readonly T[]): Map<string, T[]> {
+  const index = new Map<string, T[]>();
+  for (const claim of claims) {
+    const bucket = index.get(claim.key);
+    if (bucket === undefined) index.set(claim.key, [claim]);
+    else bucket.push(claim);
+  }
+  return index;
+}

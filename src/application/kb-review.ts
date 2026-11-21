@@ -1,6 +1,8 @@
 import { isGeneratedNote, isSpecialNote } from '../domain/kb-schema.js';
 import { parseDraft, scalarOf, serializeDraft } from '../domain/frontmatter.js';
 import { tokenize } from '../domain/text.js';
+import { claimConflict, extractClaims } from './kb-claims.js';
+import type { Claim } from './kb-claims.js';
 import { buildNoteCorpus, rankSimilar } from './kb-suggest-links.js';
 import type { NoteCorpus, NoteVector } from './kb-suggest-links.js';
 
@@ -16,6 +18,8 @@ export const MAX_STATEMENTS = 3;
 export const MAX_PAIRS_PER_NOTE = 3;
 export const MIN_SIMILARITY = 0.15;
 export const RECENT_NOTES = 5;
+/** A queue longer than this is unreadable; the rules stay silent about the rest. */
+export const MAX_CLAIM_ROWS = 20;
 export const REVIEW_VERDICTS = ['冲突', '细化', '无关'] as const;
 
 const JUDGEMENT = /必须|不能|等于|大于|小于|应当|因此|所以|结论|注意|错误|正确|公式|系数|最大|最小|较高|较低|越高|越低/g;
@@ -88,6 +92,15 @@ export interface ReviewOptions {
   readonly maxSimilar?: number;
   readonly now?: Date;
   readonly corpus?: NoteCorpus;
+  /** 'claims' pairs notes that assert different values for the same attribute; 'similar' keeps the old embedding ranking. */
+  readonly claimMode?: 'claims' | 'similar';
+  readonly claimIndex?: ReadonlyMap<string, readonly ClaimEntry[]>;
+}
+
+/** One extracted claim plus the note it came from. */
+export interface ClaimEntry extends Claim {
+  readonly notePath: string;
+  readonly noteName: string;
 }
 
 export interface ReviewRunReport {
@@ -106,6 +119,8 @@ export interface ReviewRunOptions {
   readonly note?: string;
   readonly write?: boolean;
   readonly limit?: number;
+  /** Defaults to 'claims' for scans: pair notes by conflicting claim values, not by embedding similarity. */
+  readonly claimMode?: 'claims' | 'similar';
   readonly now?: Date;
 }
 
@@ -296,7 +311,7 @@ function renderQueueBody(note: string, notePath: string, rows: readonly ReviewRo
       '| ' +
         [
           oldNote,
-          row.score.toFixed(3),
+          row.score < 0 ? '规则' : row.score.toFixed(3),
           escapeCell(row.oldText),
           escapeCell(row.newText),
           escapeCell(row.verdict),
@@ -320,7 +335,8 @@ export function parseReviewQueue(text: string): ReviewRow[] {
     const first = cells[0] ?? '';
     const linkMatch = /\[\[([^\]]+)\]\]/.exec(first);
     const pathMatch = /`([^`]+)`/.exec(first);
-    const score = Number(cells[1]);
+    const scoreCell = (cells[1] ?? '').trim();
+    const score = scoreCell === '规则' ? -1 : Number(scoreCell);
     rows.push({
       oldName: linkMatch?.[1]?.trim() ?? '',
       oldPath: pathMatch?.[1]?.trim() ?? '',
@@ -337,6 +353,26 @@ export function parseReviewQueue(text: string): ReviewRow[] {
 /** Number of rows whose 判定 column is still empty — used by kb_lint. */
 export function countPendingReviewRows(text: string): number {
   return parseReviewQueue(text).filter((row) => row.verdict.trim() === '').length;
+}
+
+/** Read every note once and index its claims by attribute, so scans compare like with like. */
+async function buildClaimIndex(fs: ReviewFs, docs: readonly NoteVector[]): Promise<Map<string, ClaimEntry[]>> {
+  const index = new Map<string, ClaimEntry[]>();
+  for (const doc of docs) {
+    let text: string;
+    try {
+      text = await fs.readText(doc.path);
+    } catch {
+      continue;
+    }
+    for (const claim of extractClaims(parseDraft(text).body)) {
+      const entry: ClaimEntry = { ...claim, notePath: doc.path, noteName: doc.name };
+      const bucket = index.get(claim.key);
+      if (bucket === undefined) index.set(claim.key, [entry]);
+      else bucket.push(entry);
+    }
+  }
+  return index;
 }
 
 /** Build one note's review queue. Reads formal notes, writes only inbox/review/. */
@@ -412,38 +448,77 @@ export async function reviewNote(fs: ReviewFs, notePath: string, options: Review
     };
   }
 
-  const ranked = rankSimilar(corpus, doc.path, {
-    topK: Math.max(1, options.maxSimilar ?? MAX_SIMILAR_NOTES),
-    minScore: options.minScore ?? MIN_SIMILARITY,
-    accept: (candidate: NoteVector) => isReviewCandidate(candidate.path),
-  });
-
   const candidates: ReviewCandidate[] = [];
   let added = 0;
-  for (const similar of ranked) {
-    const oldText = await fs.readText(similar.path);
-    const olds = extractStatements(parseDraft(oldText).body);
-    const pairs = pairStatements(olds, news);
-    let fresh = 0;
-    for (const pair of pairs) {
-      if (!claimLike(pair.oldText) || !claimLike(pair.newText)) continue;
-      const row: ReviewRow = {
-        oldPath: similar.path,
-        oldName: similar.name,
-        score: similar.score,
-        oldText: pair.oldText,
-        newText: pair.newText,
-        verdict: '',
-        basis: '',
-      };
-      const key = rowKey(row);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      rows.push(row);
-      added += 1;
-      fresh += 1;
+  if ((options.claimMode ?? 'similar') === 'claims') {
+    // Only the same attribute carrying two different values can be a contradiction.
+    const index = options.claimIndex ?? (await buildClaimIndex(fs, corpus.docs));
+    const mine = extractClaims(parseDraft(noteText).body);
+    const perNote = new Map<string, { name: string; pairs: number }>();
+    let full = false;
+    for (const claim of mine) {
+      for (const other of index.get(claim.key) ?? []) {
+        if (other.notePath === doc.path) continue;
+        const basis = claimConflict(other, claim);
+        if (basis === undefined) continue;
+        const row: ReviewRow = {
+          oldPath: other.notePath,
+          oldName: other.noteName,
+          score: -1,
+          oldText: other.sentence,
+          newText: claim.sentence,
+          verdict: '冲突',
+          basis,
+        };
+        const key = rowKey(row);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push(row);
+        added += 1;
+        const stat = perNote.get(other.notePath);
+        if (stat === undefined) perNote.set(other.notePath, { name: other.noteName, pairs: 1 });
+        else stat.pairs += 1;
+        if (rows.length >= MAX_CLAIM_ROWS) {
+          full = true;
+          break;
+        }
+      }
+      if (full) break;
     }
-    candidates.push({ path: similar.path, name: similar.name, score: similar.score, statements: olds.length, pairs: fresh });
+    for (const [path, stat] of perNote) {
+      candidates.push({ path, name: stat.name, score: -1, statements: mine.length, pairs: stat.pairs });
+    }
+  } else {
+    const ranked = rankSimilar(corpus, doc.path, {
+      topK: Math.max(1, options.maxSimilar ?? MAX_SIMILAR_NOTES),
+      minScore: options.minScore ?? MIN_SIMILARITY,
+      accept: (candidate: NoteVector) => isReviewCandidate(candidate.path),
+    });
+    for (const similar of ranked) {
+      const oldText = await fs.readText(similar.path);
+      const olds = extractStatements(parseDraft(oldText).body);
+      const pairs = pairStatements(olds, news);
+      let fresh = 0;
+      for (const pair of pairs) {
+        if (!claimLike(pair.oldText) || !claimLike(pair.newText)) continue;
+        const row: ReviewRow = {
+          oldPath: similar.path,
+          oldName: similar.name,
+          score: similar.score,
+          oldText: pair.oldText,
+          newText: pair.newText,
+          verdict: '',
+          basis: '',
+        };
+        const key = rowKey(row);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        rows.push(row);
+        added += 1;
+        fresh += 1;
+      }
+      candidates.push({ path: similar.path, name: similar.name, score: similar.score, statements: olds.length, pairs: fresh });
+    }
   }
 
   // An empty queue gives nobody anything to decide: never create one, and clear a stale one.
@@ -486,6 +561,9 @@ export async function reviewNotes(fs: ReviewFs, vaultRoot: string, options: Revi
   const started = Date.now();
   const warnings: string[] = [];
   const corpus = await buildNoteCorpus(fs);
+  // Similarity stays the default so callers that predate claim pairing keep their behaviour; the KB UI asks for claims.
+  const claimMode = options.claimMode === 'claims' ? 'claims' : 'similar';
+  const claimIndex = claimMode === 'claims' ? await buildClaimIndex(fs, corpus.docs) : undefined;
   const modified = new Map<string, number>();
   for (const entry of await fs.listFiles()) modified.set(entry.relPath, entry.modifiedMs ?? 0);
 
@@ -504,7 +582,7 @@ export async function reviewNotes(fs: ReviewFs, vaultRoot: string, options: Revi
   const queues: ReviewQueueReport[] = [];
   for (const target of targets) {
     try {
-      queues.push(await reviewNote(fs, target.path, { write: options.write, now: options.now, corpus }));
+      queues.push(await reviewNote(fs, target.path, { write: options.write, now: options.now, corpus, claimMode, ...(claimIndex === undefined ? {} : { claimIndex }) }));
     } catch (error) {
       warnings.push(target.path + ': ' + (error instanceof Error ? error.message : String(error)));
     }

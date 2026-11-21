@@ -486,7 +486,9 @@ const createUiServer = () => createServer(async (req, res) => {
       const parsed = JSON.parse(await readBody(req));
       const vault = vaultFor(url.searchParams.get('address') || '');
       const kind = String(parsed.kind ?? 'links');
-      const limit = Math.min(50, Math.max(1, Number(parsed.limit ?? 5)));
+      // Claim scans read the whole corpus cheaply; link scans stay bounded.
+      const cap = kind === 'links' ? 50 : 2000;
+      const limit = Math.min(cap, Math.max(1, Number(parsed.limit ?? 5)));
       const note = typeof parsed.note === 'string' && parsed.note.trim() !== '' ? parsed.note.trim() : undefined;
       if (kind === 'links') {
         const report = await reviewLinks(queueFs(vault), vault, {
@@ -504,16 +506,20 @@ const createUiServer = () => createServer(async (req, res) => {
           warnings: report.warnings,
         }));
       }
+      const claimMode = parsed.mode === 'similar' ? 'similar' : 'claims';
       const report = await reviewNotes(queueFs(vault), vault, {
         write: true,
         limit,
+        claimMode,
         ...(note === undefined ? {} : { note }),
       });
       return send(200, 'application/json', JSON.stringify({
         ok: true,
         kind: 'review',
+        mode: claimMode,
         notes: report.notes,
         pending: report.pending,
+        rows: report.queues.reduce((total, queue) => total + queue.rows.length, 0),
         queues: report.queues.filter((queue) => queue.rows.length > 0).length,
         empty: report.queues.filter((queue) => queue.rows.length === 0).length,
         warnings: report.warnings,
