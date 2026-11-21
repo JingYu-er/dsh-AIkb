@@ -73,7 +73,7 @@ the vault is modified; `.obsidian/` is never touched.
 
 | dsh-AIkb | Verified DSH |
 | --- | --- |
-| 0.2.x | 0.2.2-rc.1 |
+| 0.1.2 | 0.2.2-rc.1 |
 
 A row is added only after the plugin was run against that DSH build; newer builds
 may work but stay unverified until then.
