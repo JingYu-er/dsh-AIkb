@@ -13,7 +13,7 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path and the compile loop are implemented and tested (236 unit tests):
+MVP read path and the compile loop are implemented and tested (245 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
