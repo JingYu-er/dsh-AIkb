@@ -572,6 +572,69 @@ const createUiServer = () => createServer(async (req, res) => {
         items: listQueues(vault, 'review'),
       }));
     }
+    if (url.pathname === '/api/queue/pending') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const cap = Math.min(200, Math.max(1, Number(url.searchParams.get('limit') ?? 40)));
+      const queues = [];
+      let total = 0;
+      for (const queue of listQueues(vault, 'review')) {
+        const rows = [];
+        queue.rows.forEach((row, index) => {
+          const verdict = row.verdict.trim();
+          if (verdict !== '' && verdict !== '待复核') return;
+          total += 1;
+          if (rows.length >= cap) return;
+          rows.push({
+            index,
+            oldName: row.oldName,
+            oldText: String(row.oldText).slice(0, 400),
+            newText: String(row.newText).slice(0, 400),
+          });
+        });
+        if (rows.length > 0) queues.push({ path: queue.path, note: queue.note, rows });
+      }
+      return send(200, 'application/json', JSON.stringify({
+        ok: true,
+        total,
+        queued: queues.reduce((count, queue) => count + queue.rows.length, 0),
+        queues,
+      }));
+    }
+    // The model stage: an attached agent posts its verdicts here in one batch, so a
+    // whole queue is settled with one round trip instead of one write per row.
+    if (url.pathname === '/api/queue/judge/agent' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const allowed = new Set(['冲突', '细化', '无关']);
+      const byPath = new Map();
+      for (const item of Array.isArray(parsed.verdicts) ? parsed.verdicts : []) {
+        const rel = String(item.path ?? '');
+        if (!rel.startsWith(QUEUE_DIRS.review + '/')) continue;
+        const verdict = String(item.verdict ?? '').trim();
+        if (!allowed.has(verdict)) continue;
+        const index = Number(item.index ?? -1);
+        if (!Number.isInteger(index) || index < 0) continue;
+        if (!byPath.has(rel)) byPath.set(rel, []);
+        byPath.get(rel).push({ index, verdict, basis: String(item.basis ?? '').trim().slice(0, 300) });
+      }
+      let applied = 0;
+      const failed = [];
+      for (const [rel, items] of byPath) {
+        try {
+          let text = readFileSync(join(vault, rel), 'utf8');
+          for (const item of items.sort((left, right) => left.index - right.index)) {
+            const next = patchReviewRow(text, item.index, item.verdict, item.basis);
+            if (next === undefined) { failed.push(rel + '#' + item.index); continue; }
+            text = next;
+            applied += 1;
+          }
+          writeFileSync(join(vault, rel), text);
+        } catch (error) {
+          failed.push(rel + ': ' + String(error.message).slice(0, 80));
+        }
+      }
+      return send(200, 'application/json', JSON.stringify({ ok: true, applied, failed, items: listQueues(vault, 'review') }));
+    }
     if (url.pathname === '/api/queue/archive' && req.method === 'POST') {
       const parsed = JSON.parse(await readBody(req));
       const vault = vaultFor(url.searchParams.get('address') || '');
