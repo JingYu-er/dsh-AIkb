@@ -1,5 +1,6 @@
 import { DomainError } from '../shared/result.js';
 import type { ConfigSnapshot } from './config-store.js';
+import { readVaultSchema } from './vault-schema.js';
 
 export interface DoctorEntry {
   readonly relPath: string;
@@ -48,6 +49,8 @@ export interface DoctorReport {
   readonly vaultName: string;
   /** Settings-page view of the config file; attached by the tool layer, absent when unreadable. */
   readonly config?: ConfigSnapshot;
+  /** Per-vault convention sheet (<vault>/.dsh-aikb/schema.md). */
+  readonly schema?: { readonly path: string; readonly exists: boolean; readonly bytes: number; readonly updatedAt: number };
   readonly checks: readonly DoctorCheck[];
   readonly counts: DoctorCounts;
   readonly byExtension: Readonly<Record<string, number>>;
@@ -301,10 +304,21 @@ export async function runDoctor(vaultFs: DoctorVaultFs, options: DoctorOptions):
       : 'read-only mode: no tool can modify the vault',
   });
 
+  const schema = await readVaultSchema(root);
+  checks.push({
+    id: 'schema',
+    status: schema.exists ? 'pass' : 'warn',
+    detail: schema.exists
+      ? 'vault sheet: ' + schema.path + ' (' + schema.bytes + ' bytes)'
+      : 'no vault sheet yet: add page rules and directory purposes in ' + schema.path,
+  });
+  if (!schema.exists) nextActions.push('write the vault sheet in the KB settings page so pages follow one set of rules');
+
   return {
     ok: true,
     vaultRoot: root,
     vaultName: baseName(root),
+    schema: { path: schema.path, exists: schema.exists, bytes: schema.bytes, updatedAt: schema.updatedAt },
     checks,
     counts: { markdown, sources, sourceBytes, images, attachments },
     byExtension,

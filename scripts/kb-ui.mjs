@@ -15,6 +15,7 @@ const { suggestLinks } = await import(distUrl('application/kb-suggest-links.js')
 const { parseReviewQueue, reviewNotes } = await import(distUrl('application/kb-review.js'));
 const { judgePair } = await import(distUrl('application/kb-judge.js'));
 const { configFilePath, loadConfig, readiness, resolveVaultPath, saveConfig, toolchainPaths } = await import(distUrl('application/config-store.js'));
+const { readVaultSchema, schemaTemplate, writeVaultSchema } = await import(distUrl('application/vault-schema.js'));
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 /** Paths arrive in two dialects: 'draft.md' (inbox-relative) and 'inbox/_compiled/…' (vault-relative). */
@@ -643,6 +644,31 @@ const createUiServer = () => createServer(async (req, res) => {
         activeVault: wanted,
         vault: wanted,
       }));
+    }
+    if (url.pathname === '/api/schema' && req.method === 'GET') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const loaded = loadConfigCached();
+      const sheet = await readVaultSchema(vault);
+      const name = vault.split(/[\\/]/).pop() ?? 'vault';
+      return send(200, 'application/json', JSON.stringify({
+        ok: true,
+        address: vault,
+        path: sheet.path,
+        exists: sheet.exists,
+        bytes: sheet.bytes,
+        updatedAt: sheet.updatedAt,
+        text: sheet.text,
+        template: schemaTemplate(name),
+        allowWrites: loaded?.config.allowWrites === true,
+      }));
+    }
+    if (url.pathname === '/api/schema' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(typeof parsed.address === 'string' ? parsed.address : '');
+      const loaded = loadConfigCached();
+      const result = await writeVaultSchema(vault, String(parsed.text ?? ''), { allowWrites: loaded?.config.allowWrites === true });
+      const status = result.ok ? 200 : result.error?.code === 'kb.schema.read-only' ? 403 : 400;
+      return send(status, 'application/json', JSON.stringify({ ...result, address: vault }));
     }
     if (url.pathname === '/api/drafts') {
       const vault = vaultFor(url.searchParams.get('address') || '');

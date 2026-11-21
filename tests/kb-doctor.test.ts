@@ -39,7 +39,8 @@ test('kb_doctor reports counts, layout and a present inventory', async () => {
     assert.equal(report.booksManifest.entries, 2);
     assert.equal(report.writesEnabled, false);
     assert.equal(report.checks.find((c) => c.id === 'vault.marker')?.status, 'pass');
-    assert.equal(report.nextActions.length, 0);
+    assert.equal(report.checks.find((c) => c.id === 'schema')?.status, 'warn');
+    assert.ok(report.nextActions.some((action) => action.includes('vault sheet')));
   } finally {
     await fsPromises.rm(root, { recursive: true, force: true });
   }

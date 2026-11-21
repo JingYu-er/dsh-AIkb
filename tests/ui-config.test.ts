@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -108,6 +108,40 @@ test('config API refuses stale revisions, relative paths and unknown vaults', as
 
   const stillB = await get('/api/vaults');
   assert.equal(stillB.activeVault, 'b', 'a rejected write must not change the active vault');
+});
+
+test('schema API: template first, read-only refusal, then a save once writes are on', async () => {
+  const sheetPath = join(vaultB, '.dsh-aikb', 'schema.md');
+  const absent = await get('/api/schema?address=b');
+  assert.equal(absent.ok, true);
+  assert.equal(absent.exists, false);
+  assert.equal(absent.allowWrites, false);
+  assert.ok(String(absent.template).includes('## 页面规范'), 'a missing sheet must offer the template');
+
+  const refused = await post('/api/schema', { address: 'b', text: '# 页面规范' + NL });
+  assert.equal(refused.status, 403);
+  assert.equal(refused.body.ok, false);
+  assert.equal(refused.body.error.code, 'kb.schema.read-only');
+  assert.equal(existsSync(sheetPath), false, 'a read-only refusal must not create the file');
+
+  const current = await get('/api/config');
+  const enabled = await post('/api/config', { allowWrites: true, expectRevision: current.revision });
+  assert.equal(enabled.status, 200);
+
+  const text = '# 页面规范' + NL + NL + '- 概念页一段只讲一件事' + NL;
+  const written = await post('/api/schema', { address: 'b', text });
+  assert.equal(written.status, 200);
+  assert.equal(written.body.ok, true);
+  assert.equal(written.body.bytes, Buffer.byteLength(text, 'utf8'));
+
+  const read = await get('/api/schema?address=b');
+  assert.equal(read.exists, true);
+  assert.equal(read.text, text);
+  assert.equal(read.allowWrites, true);
+
+  const empty = await post('/api/schema', { address: 'b', text: '   ' });
+  assert.equal(empty.status, 400);
+  assert.equal(empty.body.error.code, 'kb.schema.empty');
 });
 
 after(async () => {

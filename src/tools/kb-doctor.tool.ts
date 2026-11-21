@@ -103,6 +103,16 @@ const OUTPUT_SCHEMA: SchemaNode = {
         errors: { type: 'array', items: { type: 'string' } },
       },
     },
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        path: { type: 'string', required: true },
+        exists: { type: 'boolean', required: true },
+        bytes: { type: 'number', required: true },
+        updatedAt: { type: 'number', required: true },
+      },
+    },
     checks: {
       type: 'array',
       required: true,
@@ -186,6 +196,9 @@ function renderReport(report: DoctorReport): string {
       ' | toolchain: ' + config.toolchain.root,
     );
     for (const warning of config.warnings) lines.push('config warning: ' + warning);
+  }
+  if (report.schema !== undefined) {
+    lines.push('sheet: ' + report.schema.path + ' | ' + (report.schema.exists ? report.schema.bytes + ' bytes' : 'absent (add page rules in the KB settings page)'));
   }
   lines.push('books manifest: ' + (report.booksManifest.present ? report.booksManifest.entries + ' entries' : 'missing'));
   if (report.python !== undefined) {
