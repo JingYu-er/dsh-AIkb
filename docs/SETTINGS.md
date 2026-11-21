@@ -40,6 +40,12 @@ dsh-AIkb 的配置只有一份来源：`~/.dsh-aikb/config.json`（可用环境�
 - 上限 64 KB，空内容拒绝（`kb.schema.empty` / `kb.schema.too-large`）；写入用临时文件加 rename，不留半份。
 - `kb_doctor` 会报 `sheet` 一项：文件不存在时是 `warn`，并在 `nextActions` 里提示去设置页写。
 
+## 任务队列与版本历史
+
+配置页底部有「任务队列」区块：显示每条任务的 kind、状态与失败原因，可取消待跑任务、「运行一个」（入队一个 judge 任务并让后台模型判一轮矛盾队列）、「恢复中断」和「清理已完成」。队列文件在 `<toolchainDir>/jobs/queue.json`，随工具链目录走，换库不混队。
+
+笔记页右上角有「版本历史」：每次保存都会先把被覆盖的正文存进 `<vault>/.dsh-aikb/history/`（每篇保留最近 20 版）。下拉选一版可以「载入这一版」（只进编辑器，点保存才写回）或「恢复这一版」（直接写回，并先把当前内容存成新版本，所以恢复了也能再退回去）。
+
 ## 工具链目录
 
 所有重产物都在一个根下，两个库不会各下一份模型：
@@ -84,6 +90,15 @@ dsh-AIkb 的配置只有一份来源：`~/.dsh-aikb/config.json`（可用环境�
 | `POST /api/vault/init` | `{dir, name?, template?, activate?}` 新建库并登记；非空目录、相对路径、只读模式分别返回 400/400/403 |
 | `GET /api/schema?address=` | 当前库（或指定库）的库约定：`path`、`exists`、`bytes`、`updatedAt`、`text`、`template`、`allowWrites` |
 | `POST /api/schema` | `{text, address?}` 写入库约定；`allowWrites` 关闭时 403 |
+| `GET /api/jobs` | 队列文件路径、`summary`（按状态与 kind 计数）、最近 100 条任务 |
+| `POST /api/jobs/enqueue` | `{kind, vault?, label?, payload?, maxAttempts?}`；`vault` 省略时用当前库；同 kind+vault+label 的待跑任务会复用 |
+| `POST /api/jobs/cancel` | `{id}`；未知 id 返回 404 |
+| `POST /api/jobs/recover` | 把崩溃时残留的 `running` 任务放回 `pending` |
+| `POST /api/jobs/prune` | `{keepDone?}` 删除最早的已完成/已取消任务，`pending`/`running`/`failed` 永不清 |
+| `POST /api/jobs/run` | `{limit?}`（上限 5）认领并执行任务；目前 `judge` 会调后台模型判一轮矛盾队列，其余 kind 以 `kb.job.unsupported` 失败 |
+| `GET /api/history?address=&path=` | 某篇笔记的历史版本清单（最新在前） |
+| `GET /api/history/entry?address=&path=&stamp=` | 读回某一版正文 |
+| `POST /api/history/restore` | `{path, stamp}` 恢复；先把当前内容存成新版本，只读模式 403 |
 
 ## 旧配置迁移
 

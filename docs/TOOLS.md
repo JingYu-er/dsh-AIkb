@@ -476,6 +476,58 @@ and names the directory that now exists.
 | `kb.init.write-failed` | Creating the skeleton failed; the message carries the cause. |
 | `kb.init.register-failed` | The vault exists but the config write was refused. |
 
+## kb_jobs
+
+Own the durable job queue. One JSON file survives restarts; this tool manages the
+records, the KB panel drains them. Nothing here runs a worker.
+
+Input: `{ action?: "list" | "enqueue" | "cancel" | "recover" | "prune" | "summary", kind?, label?, vault?, payload?, maxAttempts?, id?, keepDone?, status? }`
+
+Queue file: `<toolchainDir>/jobs/queue.json` (falling back to `~/.dsh-aikb/jobs/`
+when no toolchain directory is configured). It is written atomically (tmp + rename)
+and carries a version so a future layout change can migrate it.
+
+| Action | Effect |
+| --- | --- |
+| `list` (default) | Newest 50 jobs, optionally filtered by `status`; `summary` counts by status and kind. |
+| `enqueue` | Add an `ingest`, `judge` or `embed` job for `vault`. An identical pending job (same kind, vault and label) is reused instead of duplicated. |
+| `cancel` | Mark a job `cancelled`; already finished jobs are returned unchanged. |
+| `recover` | Turn `running` jobs back into `pending` with `kb.job.interrupted`, for after a crash. |
+| `prune` | Delete the oldest `done` and `cancelled` jobs beyond `keepDone` (default 50). `pending`, `running` and `failed` are never pruned. |
+
+A failed job returns to `pending` while `attempts < maxAttempts` (1-10, default 3) and
+becomes `failed` with `lastError` after the last attempt. `payload` is stored verbatim
+for the worker.
+
+| Code | Meaning |
+| --- | --- |
+| `kb.job.invalid` | `vault` is missing, or `kind` is not one of the three workers. |
+| `kb.job.unknown` | `cancel` named a job id that the queue does not hold. |
+| `kb.job.busy` | A worker already claimed a job; finish it before claiming another (worker-side). |
+| `kb.job.empty` | Nothing is pending (worker-side). |
+
+## kb_history
+
+Version history for one note. Every save through the KB panel keeps a copy of the
+text it is about to overwrite under `<vault>/.dsh-aikb/history/<slug>/<stamp>.md`,
+newest 20 per note.
+
+Input: `{ action?: "list" | "read" | "restore", note: string, stamp?: string, vaultPath?: string }`
+
+`note` is the vault-relative POSIX path. `list` returns entries newest first
+(`stamp`, `path`, `bytes`); `read` returns the text of one entry; `restore` writes it
+back, first capturing the text it overwrites, so a restore is itself undoable with a
+second `kb_history` call. Restoring needs `allowWrites`.
+
+| Code | Meaning |
+| --- | --- |
+| `kb.history.read-only` | Restore attempted while writes are off. |
+| `kb.history.empty` | The note has no stored text to capture. |
+| `kb.history.too-large` | The capture exceeds 256 KiB. |
+| `kb.history.invalid-stamp` | The stamp is not one this module produced. |
+| `kb.history.missing` | No entry with that stamp. |
+| `kb.history.outside-vault` | The note path resolves outside the vault. |
+| `kb.history.invalid-note` | `note` is empty. |
 ## kb-search skill
 
 Not a tool: an agent skill shipped with the plugin (`skills/kb-search/SKILL.md`),

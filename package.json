@@ -1,6 +1,6 @@
 {
   "name": "dsh-aikb",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "dsh-AIkb — Obsidian-native knowledge base for DeepSeek Harness: a compiler, not a retriever.",
   "repository": { "type": "git", "url": "git+https://github.com/JingYu-er/dsh-AIkb.git" },
   "homepage": "https://github.com/JingYu-er/dsh-AIkb#readme",
