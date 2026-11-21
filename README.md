@@ -60,12 +60,14 @@ the vault is modified; `.obsidian/` is never touched.
   than English ones — see [Retrieval quality](#retrieval-quality).
 - A vault: a directory containing `.obsidian/`
 - Configuration: one file, `~/.dsh-aikb/config.json` (override with `KB_CONFIG`).
-  The **配置** tab in the KB panel edits it: several vaults with one active, the
-  pack directory, the shared toolchain directory and the write switch. A legacy
-  single-vault `vaultPath` is migrated on read. The same tab holds the **vault
-  sheet** — per-vault page rules, directory purposes and the processing
-  pipeline, stored in `.dsh-aikb/schema.md` inside the vault and checked by
-  `kb_doctor`. See [docs/SETTINGS.md](docs/SETTINGS.md).
+  It is edited in the harness **Settings → 知识库** section
+  (`settings.section` slot): several vaults with one active, the pack directory,
+  the shared toolchain directory and the write switch. The KB panel only keeps a
+  vault dropdown in its title bar. A legacy single-vault `vaultPath` is migrated
+  on read. The settings section also holds the **vault sheet** — per-vault page
+  rules, directory purposes and the processing pipeline, stored in
+  `.dsh-aikb/schema.md` inside the vault and checked by `kb_doctor` — and the
+  page-feedback list. See [docs/SETTINGS.md](docs/SETTINGS.md).
 
 (EPUB/DJVU parsers are not wired yet; `kb_ingest` reports them as errors.)
 

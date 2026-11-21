@@ -12,6 +12,7 @@ import { ensurePythonEnv } from './adapters/pdf/python-env.js';
 import type { PythonEnvReport } from './adapters/pdf/python-env.js';
 import { configFilePath, configMtime, loadConfig, resolveVaultPath, toolchainPaths, vaultGate } from './application/config-store.js';
 import type { KbConfig, KbConfigOverrides } from './application/config-store.js';
+import { handleSettingsApi, SETTINGS_ROUTE_PREFIX, type SettingsApiDeps } from './application/settings-api.js';
 import { registerTool } from './tools/definition.js';
 import { createKbDoctorTool } from './tools/kb-doctor.tool.js';
 import { createKbEmbedTool } from './tools/kb-embed.tool.js';
@@ -389,5 +390,81 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     logBoot(workspaceRoot, 'apply-failed', error instanceof Error ? error.message : String(error));
     throw error;
   }
+
+  /**
+   * The settings page runs inside the DSH web GUI, so it needs JSON routes on the host
+   * server instead of tools. Registration is strictly best-effort: a host without a
+   * webServer service (headless, older DSH) must keep every tool registered above, so a
+   * failure here is logged and not thrown.
+   */
+  try {
+    const settingsDeps: SettingsApiDeps = {
+      overrides: () => configOverrides,
+      allowWrites: () => allowWrites,
+      // An empty address means the vault this session would use, same as the tools.
+      vaultFor: (address) => (address !== '' ? resolveVaultPath(configNow(), address) : resolveRoot()),
+      // The page queues jobs through the same directory the kb_jobs tool reads.
+      jobsDir: () => nodePath.join(toolchain().root, 'jobs'),
+    };
+    type HostRequest = AsyncIterable<Uint8Array> & { method?: string; url?: string };
+    type HostResponse = {
+      writeHead: (status: number, headers: Record<string, string>) => void;
+      end: (body: string) => void;
+    };
+    const readBody = async (req: HostRequest): Promise<{ text: string; tooLarge: boolean }> => {
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for await (const chunk of req) {
+        size += chunk.byteLength;
+        // Cap at 1 MiB: a settings patch is a few KiB, anything bigger is not ours.
+        if (size > 1024 * 1024) return { text: '', tooLarge: true };
+        chunks.push(chunk);
+      }
+      return { text: Buffer.concat(chunks).toString('utf8'), tooLarge: false };
+    };
+    const handler = async (req: HostRequest, res: HostResponse): Promise<void> => {
+      const url = req.url ?? SETTINGS_ROUTE_PREFIX;
+      const queryAt = url.indexOf('?');
+      const fullPath = queryAt < 0 ? url : url.slice(0, queryAt);
+      const search = queryAt < 0 ? '' : url.slice(queryAt);
+      // The prefix route sees the whole URL; the API contract matches on what follows.
+      const rest = fullPath.startsWith(SETTINGS_ROUTE_PREFIX) ? fullPath.slice(SETTINGS_ROUTE_PREFIX.length) : fullPath;
+      const pathname = rest === '' ? '/' : rest;
+      let body = '';
+      let tooLarge = false;
+      try {
+        const read = await readBody(req);
+        body = read.text;
+        tooLarge = read.tooLarge;
+      } catch {
+        // A client that dies mid-body is a bad request, not a crash.
+      }
+      const result = tooLarge
+        ? { status: 413, body: { ok: false, error: { code: 'kb.api.too-large', message: 'The request body exceeds 1 MiB.' } } }
+        : await handleSettingsApi({ method: req.method ?? 'GET', pathname, search, body }, settingsDeps);
+      res.writeHead(result.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
+      res.end(JSON.stringify(result.body));
+    };
+    const anyCtx = ctx as unknown as {
+      webServer?: { register: (options: unknown) => unknown };
+      inject?: (names: string[], callback: (child: unknown) => void) => void;
+    };
+    const options = { kind: 'prefix', path: SETTINGS_ROUTE_PREFIX, handler };
+    const install = (target: typeof anyCtx): void => {
+      if (target.webServer === undefined) return;
+      target.webServer.register(options);
+      logBoot(bootRoot, 'settings-api', 'registered ' + SETTINGS_ROUTE_PREFIX);
+    };
+    if (typeof anyCtx.inject === 'function') {
+      anyCtx.inject(['webServer'], (child) => {
+        install(child as typeof anyCtx);
+      });
+    } else {
+      install(anyCtx);
+    }
+  } catch (error) {
+    logBoot(bootRoot, 'settings-api-failed', error instanceof Error ? error.message : String(error));
+  }
+
   logBoot(workspaceRoot, 'apply', 'registered kb_doctor kb_inventory kb_lint kb_compile kb_promote kb_suggest_links kb_index kb_link_review kb_link_apply kb_ingest kb_query kb_embed kb_export_pack kb_init kb_jobs kb_history kb_feedback');
 }

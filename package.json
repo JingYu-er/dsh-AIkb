@@ -34,7 +34,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.test.json && node --test --test-isolation=none .test-build/tests/*.test.js",
+    "test": "tsc -p tsconfig.test.json && node --test .test-build/tests/*.test.js",
     "bench": "node bench/run.mjs",
     "prepublishOnly": "npm run build"
   },
