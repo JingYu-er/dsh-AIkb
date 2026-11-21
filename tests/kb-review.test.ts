@@ -230,3 +230,43 @@ test('merging drops unfilled noise rows and keeps decided rows', async () => {
   }
 });
 
+
+
+test('a claims scan marks machine hits 待复核 and clears an undecided similarity queue', async () => {
+  const root = await makeVault({
+    '学习/笔记/共模.md': note('concept', '共模', ['| 参数 | 数值 |', '| --- | --- |', '| 共模增益 | 20 |'].join('\n')),
+    '学习/笔记/共模另一处.md': note('thought', '共模另一处', ['| 参数 | 数值 |', '| --- | --- |', '| 共模电压增益 | 40 |'].join('\n')),
+    '学习/笔记/单独.md': note('concept', '单独', '这一篇只有一段普通说明：它讲的是如何整理书桌，没有任何参数表，也没有可以比较的数值。'),
+  });
+  try {
+    const fs = new NodeNotesFs(root);
+    const stale = path.join(root, REVIEW_QUEUE_DIR, '学习__笔记__单独.md');
+    await mkdir(path.dirname(stale), { recursive: true });
+    await writeFile(
+      stale,
+      [
+        '---',
+        'type: review-queue',
+        'note: 学习/笔记/单独.md',
+        '---',
+        '',
+        '| 旧笔记 | 相似度 | 旧说法（摘录） | 新说法（摘录） | 判定（待填） | 依据（待填） |',
+        '| --- | --- | --- | --- | --- | --- |',
+        '| [[别的]]<br>\u0060学习/笔记/别的.md\u0060 | 0.5 | 两段措辞不同的同一句话 | 两段措辞不同的同一句话 |  |  |',
+      ].join('\n'),
+      'utf8',
+    );
+
+    const cleared = await reviewNote(fs, '学习/笔记/单独.md', { write: true, claimMode: 'claims' });
+    assert.equal(cleared.rows.length, 0);
+    assert.equal(cleared.deleted, true);
+
+    const queue = await reviewNote(fs, '学习/笔记/共模.md', { write: true, claimMode: 'claims' });
+    assert.equal(queue.rows.length, 1);
+    assert.equal(queue.rows[0]?.verdict, '待复核');
+    assert.equal(queue.rows[0]?.oldName, '共模另一处');
+    assert.match(queue.rows[0]?.basis ?? '', /规则配对/);
+  } finally {
+    await cleanup(root);
+  }
+});

@@ -352,7 +352,10 @@ export function parseReviewQueue(text: string): ReviewRow[] {
 
 /** Number of rows whose 判定 column is still empty — used by kb_lint. */
 export function countPendingReviewRows(text: string): number {
-  return parseReviewQueue(text).filter((row) => row.verdict.trim() === '').length;
+  return parseReviewQueue(text).filter((row) => {
+    const verdict = row.verdict.trim();
+    return verdict === '' || verdict === '待复核';
+  }).length;
 }
 
 /** Read every note once and index its claims by attribute, so scans compare like with like. */
@@ -388,6 +391,7 @@ export async function reviewNote(fs: ReviewFs, notePath: string, options: Review
   const isLinkNote = LINK_TYPES.has(noteType);
   const news = isLinkNote ? [] : extractStatements(draft.body);
 
+  const machineMode = (options.claimMode ?? 'similar') === 'claims';
   const queuePath = reviewQueuePathFor(doc.path);
   const existingText = (await fs.exists(queuePath)) ? await fs.readText(queuePath) : undefined;
   const existing = existingText === undefined ? [] : parseReviewQueue(existingText);
@@ -396,7 +400,10 @@ export async function reviewNote(fs: ReviewFs, notePath: string, options: Review
   const kept: ReviewRow[] = [];
   let removed = 0;
   for (const row of existing) {
-    if (row.verdict.trim() !== '' || (claimLike(row.oldText) && claimLike(row.newText))) {
+    // A rule-based scan replaces candidate rows outright: only decided rows survive.
+    const keepable =
+      row.verdict.trim() !== '' || (!machineMode && claimLike(row.oldText) && claimLike(row.newText));
+    if (keepable) {
       kept.push(row);
     } else {
       removed += 1;
@@ -467,8 +474,8 @@ export async function reviewNote(fs: ReviewFs, notePath: string, options: Review
           score: -1,
           oldText: other.sentence,
           newText: claim.sentence,
-          verdict: '冲突',
-          basis,
+          verdict: '待复核',
+          basis: `规则配对：${basis}（等待 NLI/agent 判定）`,
         };
         const key = rowKey(row);
         if (seen.has(key)) continue;

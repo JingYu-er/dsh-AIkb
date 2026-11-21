@@ -154,7 +154,12 @@ const readQueueFile = (vault, kind, rel) => {
       verdict: row.verdict,
       basis: row.basis,
     })),
-    pending: rows.filter((row) => row.verdict.trim() === '').length,
+    pending: rows.filter((row) => {
+      const verdict = row.verdict.trim();
+      return verdict === '' || verdict === '待复核';
+    }).length,
+    conflicts: rows.filter((row) => row.verdict.trim() === '冲突').length,
+    nli: rows.filter((row) => row.verdict.trim() === '待复核').length,
   };
 };
 const listQueues = (vault, kind) => {
@@ -513,15 +518,19 @@ const createUiServer = () => createServer(async (req, res) => {
         claimMode,
         ...(note === undefined ? {} : { note }),
       });
+      const touched = new Set(report.queues.map((queue) => queue.path));
+      const items = listQueues(vault, 'review').filter((queue) => touched.has(queue.path));
       return send(200, 'application/json', JSON.stringify({
         ok: true,
         kind: 'review',
         mode: claimMode,
         notes: report.notes,
-        pending: report.pending,
-        rows: report.queues.reduce((total, queue) => total + queue.rows.length, 0),
-        queues: report.queues.filter((queue) => queue.rows.length > 0).length,
+        pending: items.reduce((total, queue) => total + queue.pending, 0),
+        rows: items.reduce((total, queue) => total + queue.rows.length, 0),
+        nli: items.reduce((total, queue) => total + queue.nli, 0),
+        queues: items.length,
         empty: report.queues.filter((queue) => queue.rows.length === 0).length,
+        items,
         warnings: report.warnings,
       }));
     }

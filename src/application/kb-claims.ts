@@ -71,6 +71,25 @@ const STOP_KEYS = new Set([
 /** A parameter name is words/digits, not LaTeX, code, markup or a table separator. */
 const KEY_SHAPE = /^[A-Za-z0-9\u4e00-\u9fa5][A-Za-z0-9\u4e00-\u9fa5 _./\-]{1,23}$/;
 
+/** Names that mean the same parameter, so "共模电压增益" and "共模增益" are compared. */
+const ALIASES = new Map<string, string>([
+  ['共模电压增益', '共模增益'], ['共模增益', '共模增益'], ['acm', '共模增益'],
+  ['差模电压增益', '差模增益'], ['差模增益', '差模增益'], ['adm', '差模增益'],
+  ['输入阻抗', '输入电阻'], ['输出阻抗', '输出电阻'], ['in', '输入电阻'],
+  ['电源电压', '电源电压'], ['工作电压', '电源电压'], ['供电电压', '电源电压'], ['vcc', '电源电压'], ['vdd', '电源电压'], ['vin', '电源电压'],
+  ['工作温度', '工作温度'], ['工作温度范围', '工作温度'], ['温度范围', '工作温度'], ['环境温度', '工作温度'],
+  ['封装形式', '封装'], ['封装类型', '封装'], ['package', '封装'],
+  ['baud rate', '波特率'], ['baudrate', '波特率'], ['baud', '波特率'],
+  ['数据速率', '数据速率'], ['传输速率', '数据速率'], ['数据率', '数据速率'], ['datarate', '数据速率'],
+  ['增益带宽积', 'gbw'], ['gain bandwidth', 'gbw'],
+  ['静态电流', '静态电流'], ['iq', '静态电流'], ['quiescent current', '静态电流'],
+  ['输入失调电压', '失调电压'], ['失调电压', '失调电压'], ['offset voltage', '失调电压'], ['vos', '失调电压'],
+  ['共模抑制比', 'cmrr'], ['电源抑制比', 'psrr'],
+  ['电源电流', '电源电流'], ['工作电流', '工作电流'],
+]);
+/** Column titles that end a parameter name ("工作频率参数" -> "工作频率"). */
+const ALIAS_SUFFIX = /(?:参数|指标|数值)$/;
+
 const KEY_MAX = 24;
 const SENTENCE_MAX = 200;
 /** Backtick, asterisk, underscore, tilde: markdown emphasis the claim value does not need. */
@@ -78,13 +97,17 @@ const STRIP_MARKUP = /[\x60*_~]/g;
 const FENCE = /^\s*(\x60{3,}|~{3,})/;
 
 function normalizeKey(raw: string): string {
-  return raw
+  const base = raw
     .replace(/^[\s>*\-#|]+/, '')
     .replace(STRIP_MARKUP, '')
     .replace(/[（(].*?[)）]$/, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .toLowerCase();
+    .toLowerCase()
+    .replace(ALIAS_SUFFIX, '')
+    .trim();
+  const alias = ALIASES.get(base);
+  return alias ?? base;
 }
 
 function sentenceOf(line: string): string {
