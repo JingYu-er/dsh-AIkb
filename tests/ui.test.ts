@@ -40,6 +40,10 @@ let server: Server | undefined;
 let base = '';
 
 test('server routes: notes, note, links, save and drafts', async () => {
+  // A developer's real ~/.dsh-aikb/config.json would otherwise win over the vault passed to the server.
+  process.env.KB_CONFIG = join(mkdtempSync(join(tmpdir(), 'dsh-aikb-ui-cfg-')), 'config.json');
+  delete process.env.KB_VAULT;
+
   const mod = (await import(pathToFileURL(join(root, 'scripts/kb-ui.mjs')).href)) as unknown as {
     startUiServer: (options: Record<string, unknown>) => Promise<Server>;
   };
@@ -88,4 +92,5 @@ test('server routes: notes, note, links, save and drafts', async () => {
 
 after(() => {
   if (server !== undefined) server.close();
+  delete process.env.KB_CONFIG;
 });

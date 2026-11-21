@@ -71,8 +71,21 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
 .split[data-dir="b"]::after,.split[data-dir="t"]::after{left:0;right:0;top:2px;bottom:auto;width:auto;height:2px}
 #qreport:empty{display:none}
 #qreport{white-space:pre-wrap;font:12px/1.6 ui-monospace,Consolas,monospace;background:#191d24;border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:0;color:#9fd0a8}
+#config{display:none;flex:1;flex-direction:column;overflow:auto;padding:14px 18px}
+#cfgbar{display:flex;gap:8px;align-items:center;margin-bottom:10px}
+.cfggrp{margin:14px 0 6px;color:#8b96a8;font-size:12px}
+.cfgrow{display:flex;gap:8px;align-items:center;margin:6px 0;font-size:12px;color:#c3ccda}
+.cfgrow span{flex:0 0 110px;color:#8b96a8}
+.cfgrow input:not([type=checkbox]){flex:1;max-width:520px;padding:5px 7px;background:#1b1f26;border:1px solid #333a45;border-radius:6px;color:#fff;font:12px/1.4 system-ui}
+.cfgvault{display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid #232833;border-radius:8px;margin:4px 0;font-size:12px;background:#15181e}
+.cfgvault.on{border-color:#3f5673;background:#1a2030}
+.cfgvault .nm{flex:0 0 170px}
+.cfgvault .dr{flex:1}
+.cfgvault input{min-width:0;padding:4px 6px;background:#1b1f26;border:1px solid #333a45;border-radius:6px;color:#fff;font:12px/1.4 system-ui}
+.cfgvault .miss{color:#d98a8a;flex:none}
+#cfgmsg{white-space:pre-wrap;font:12px/1.6 ui-monospace,Consolas,monospace;background:#191d24;border:1px solid #2a2e36;border-radius:8px;padding:10px;color:#9fd0a8;min-height:18px}
 </style>
-<header><b>dsh-AIkb</b><span class="tab on" id="t-notes">笔记</span><span class="tab" id="t-search">检索</span><span class="tab" id="t-drafts">草稿</span><span class="tab" id="t-links">入链</span><span class="tab" id="t-review">矛盾</span><span id="status" style="margin-left:auto;color:#7d8798;font-size:12px"></span></header>
+<header><b>dsh-AIkb</b><span class="tab on" id="t-notes">笔记</span><span class="tab" id="t-search">检索</span><span class="tab" id="t-drafts">草稿</span><span class="tab" id="t-links">入链</span><span class="tab" id="t-review">矛盾</span><span class="tab" id="t-config">配置</span><span id="status" style="margin-left:auto;color:#7d8798;font-size:12px"></span></header>
 <main>
   <aside id="side"><input id="filter" placeholder="过滤笔记…"><div id="tree"></div></aside>
   <div class="split" data-el="side" data-dir="l"></div>
@@ -115,13 +128,26 @@ article{border:1px solid #2a2e36;border-radius:8px;padding:10px;margin:10px 0;ba
       <pre id="qreport"></pre>
     </div>
   </div>
+  <div id="config">
+    <div id="cfgbar"><span id="cfgwhere" style="color:#8b96a8;font-size:12px">配置未加载</span><span style="margin-left:auto"></span><button id="cfgadd">添加知识库</button><button id="cfgsave">保存</button></div>
+    <div id="cfgpane">
+      <div class="cfggrp">知识库（点左侧单选切换当前库；切换会重新加载页面，未保存的修改会丢失）</div>
+      <div id="cfglist"></div>
+      <div class="cfggrp">目录</div>
+      <label class="cfgrow"><span>知识包目录</span><input id="cfgpack" placeholder="例如 D:/knowledge/packs"></label>
+      <label class="cfgrow"><span>工具链目录</span><input id="cfgtool" placeholder="留空则用 ~/.dsh-aikb/toolchain"></label>
+      <label class="cfgrow"><span>允许写入</span><input type="checkbox" id="cfgwrite"></label>
+      <div class="cfggrp">状态</div>
+      <pre id="cfgmsg"></pre>
+    </div>
+  </div>
 </main>
 <script>
 var NL=String.fromCharCode(10);
 window.onerror=function(m,src,line,col){var s=document.getElementById("status");if(s){s.textContent="脚本错误: "+m+" @"+line+":"+col;s.style.color="#d98a8a"}};
 var notes=[],current="",expanded={},tree=null,currentMtime=0,dCur={kind:"",path:""};
 var byId={};
-["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-links","t-review","queue","qlist","qview","qpath","qhint","qtexts","qnewname","qnewtext","qoldname","qoldtext","qrows","qreport","qscanreview","qarchive","qscanlimit","qshowall","qjudge","qjudgeai","plinks","pview","ppath","ptext","pside","phint","pcands","preport","prefresh"].forEach(function(id){byId[id]=document.getElementById(id)});
+["tree","editor","path","save","status","filter","q","hits","search","pane","links","drafts","dlist","dtext","dreport","dpath","dcompile","dpreview","dconfirm","withNotes","t-notes","t-search","t-drafts","t-links","t-review","queue","qlist","qview","qpath","qhint","qtexts","qnewname","qnewtext","qoldname","qoldtext","qrows","qreport","qscanreview","qarchive","qscanlimit","qshowall","qjudge","qjudgeai","plinks","pview","ppath","ptext","pside","phint","pcands","preport","prefresh","t-config","config","cfgbar","cfgwhere","cfgadd","cfgsave","cfglist","cfgpack","cfgtool","cfgwrite","cfgmsg"].forEach(function(id){byId[id]=document.getElementById(id)});
 function esc(s){return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;")}
 var WIDTH_KEY="kbUiWidths";
 function savedWidths(){try{return JSON.parse(localStorage.getItem(WIDTH_KEY)||"{}")}catch(e){return {}}}
@@ -149,8 +175,98 @@ byId.links.addEventListener("click",function(e){var el=e.target.closest(".lk[dat
 byId.save.onclick=async function(){try{var r=await fetch("/api/save",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({path:current,text:byId.editor.value,mtime:currentMtime})});var j=await r.json();if(j.ok){currentMtime=j.mtime||currentMtime;byId.status.textContent="已保存";return}if(j.code==="conflict"){byId.editor.value=j.text;currentMtime=j.mtime||0;byId.status.textContent="文件被别处改过，已载入最新版本";return}byId.status.textContent="保存失败："+(j.error||"")}catch(err){byId.status.textContent="保存失败"}};
 byId.filter.oninput=render;
 async function load(){try{var r=await fetch("/api/notes");var j=await r.json();if(!j.ok)throw new Error("bad");notes=j.notes||[];tree=build(notes);byId.status.textContent=notes.length+" 篇笔记";render()}catch(err){byId.status.textContent="知识库服务正在启动…";setTimeout(load,1500)}}
-function showTab(which){curTab=which;["notes","search","drafts","links","review"].forEach(function(k){byId["t-"+k].classList.toggle("on",which===k)});byId.pane.style.display=which==="notes"?"flex":"none";byId.search.style.display=which==="search"?"flex":"none";byId.drafts.style.display=which==="drafts"?"flex":"none";byId.plinks.style.display=which==="links"?"flex":"none";byId.queue.style.display=which==="review"?"flex":"none";if(which==="drafts")loadDrafts();if(which==="links"){if(pCur!==""){loadPossible()}else{byId.phint.textContent="点击左侧目录中的笔记：这里会同时显示它的内容和可能相关的笔记。"}}if(which==="review")loadQueues()}
-byId["t-notes"].onclick=function(){showTab("notes")};byId["t-search"].onclick=function(){showTab("search")};byId["t-drafts"].onclick=function(){showTab("drafts")};byId["t-links"].onclick=function(){showTab("links")};byId["t-review"].onclick=function(){showTab("review")};
+function showTab(which){curTab=which;["notes","search","drafts","links","review","config"].forEach(function(k){byId["t-"+k].classList.toggle("on",which===k)});byId.pane.style.display=which==="notes"?"flex":"none";byId.search.style.display=which==="search"?"flex":"none";byId.drafts.style.display=which==="drafts"?"flex":"none";byId.plinks.style.display=which==="links"?"flex":"none";byId.queue.style.display=which==="review"?"flex":"none";if(which==="drafts")loadDrafts();if(which==="links"){if(pCur!==""){loadPossible()}else{byId.phint.textContent="点击左侧目录中的笔记：这里会同时显示它的内容和可能相关的笔记。"}}if(which==="review")loadQueues();byId.config.style.display=which==="config"?"flex":"none";if(which==="config")cfgLoad()}
+byId["t-notes"].onclick=function(){showTab("notes")};byId["t-search"].onclick=function(){showTab("search")};byId["t-drafts"].onclick=function(){showTab("drafts")};byId["t-links"].onclick=function(){showTab("links")};byId["t-config"].onclick=function(){showTab("config")};
+var cfgDraft=null,cfgRevision="";
+function cfgAttr(s){return esc(s).replace(/"/g,"&quot;")}
+function cfgSlug(s){return String(s||"").toLowerCase().replace(/[^a-z0-9\u4e00-\u9fa5]+/g,"-").replace(/^-+|-+$/g,"").slice(0,32)||"vault"}
+function cfgRender(){
+  if(!cfgDraft){byId.cfglist.innerHTML="";return}
+  var h="";
+  cfgDraft.vaults.forEach(function(v,i){
+    h+='<div class="cfgvault'+(i===cfgDraft.activeIndex?" on":"")+'">'
+      +'<input type="radio" name="cfgactive" data-i="'+i+'"'+(i===cfgDraft.activeIndex?" checked":"")+'>'
+      +'<input class="nm" data-i="'+i+'" data-k="name" value="'+cfgAttr(v.name)+'" placeholder="名称">'
+      +'<input class="dr" data-i="'+i+'" data-k="dir" value="'+cfgAttr(v.dir)+'" placeholder="绝对路径，例如 D:/notes">'
+      +(v.exists===false?'<span class="miss">目录不存在</span>':"")
+      +'<button data-del="'+i+'">移除</button></div>';
+  });
+  byId.cfglist.innerHTML=h||'<div class="cfggrp">还没有知识库，点「添加知识库」。</div>';
+}
+function cfgValues(){
+  var out=[];
+  Array.prototype.forEach.call(byId.cfglist.querySelectorAll("input[data-k]"),function(el){
+    var i=Number(el.getAttribute("data-i"));var k=el.getAttribute("data-k");
+    out[i]=out[i]||{};out[i][k]=el.value.trim();
+  });
+  return out.filter(function(v){return v&&(v.name||v.dir)}).map(function(v){return {id:cfgSlug(v.name||v.dir),name:v.name||v.dir,dir:v.dir}});
+}
+async function cfgLoad(){
+  byId.cfgmsg.textContent="读取配置…";
+  try{
+    var j=await (await fetch("/api/config")).json();
+    if(!j.ok){byId.cfgmsg.textContent="读取失败："+(j.error||"");return}
+    cfgRevision=j.revision;
+    var byId_=function(id){return (j.vaults||[]).filter(function(x){return x.id===id})[0]||{exists:true}};
+    cfgDraft={vaults:(j.config.vaults||[]).map(function(v){return {id:v.id,name:v.name,dir:v.dir,exists:byId_(v.id).exists}}),activeIndex:Math.max(0,(j.config.vaults||[]).findIndex(function(v){return v.id===j.config.activeVault}))};
+    byId.cfgpack.value=j.config.packDir||"";
+    byId.cfgtool.value=j.config.toolchainDir||"";
+    byId.cfgwrite.checked=!!j.config.allowWrites;
+    byId.cfgwhere.textContent="配置："+j.configPath;
+    var lines=["配置版本 "+(j.config.version||"?")+" · 校验 "+j.revision];
+    if(j.missing.length)lines.push("还没配完："+j.missing.join("、"));
+    if(j.warnings.length)lines.push(j.warnings.map(function(w){return "提醒："+w}).join(NL));
+    if(j.toolchain)lines.push("工具链目录："+j.toolchain.root);
+    if(j.sources.length)lines.push("来源："+j.sources.join("、"));
+    byId.cfgmsg.textContent=lines.join(NL);
+    cfgRender();
+  }catch(err){byId.cfgmsg.textContent="读取失败："+err}
+}
+async function cfgSave(){
+  if(!cfgDraft)return;
+  var vaults=cfgValues();
+  if(!vaults.length){byId.cfgmsg.textContent="至少配置一个知识库。";return}
+  var body={vaults:vaults,packDir:byId.cfgpack.value.trim(),toolchainDir:byId.cfgtool.value.trim(),allowWrites:byId.cfgwrite.checked,expectRevision:cfgRevision,
+    activeVault:vaults[Math.min(cfgDraft.activeIndex,vaults.length-1)].id};
+  byId.cfgsave.disabled=true;
+  try{
+    var resp=await fetch("/api/config",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+    var j=await resp.json();
+    if(!j.ok){
+      byId.cfgmsg.textContent=(j.error?"保存失败："+j.error:"保存未通过校验：")+NL+((j.problems||[]).map(function(p){return p.field+"："+p.message}).join(NL));
+      return;
+    }
+    cfgRevision=j.revision;
+    await cfgLoad();
+    byId.cfgmsg.textContent="已保存。"+NL+byId.cfgmsg.textContent;
+  }catch(err){byId.cfgmsg.textContent="保存失败："+err}finally{byId.cfgsave.disabled=false}
+}
+byId.cfgadd.onclick=function(){if(!cfgDraft)return;cfgDraft.vaults.push({id:"",name:"新知识库",dir:"",exists:false});cfgRender()};
+byId.cfglist.addEventListener("input",function(e){
+  var el=e.target;if(!el||!el.getAttribute)return;
+  var i=el.getAttribute("data-i");var k=el.getAttribute("data-k");
+  if(i===null||!k||!cfgDraft)return;
+  cfgDraft.vaults[Number(i)][k]=el.value;
+});
+byId.cfglist.addEventListener("click",function(e){
+  var el=e.target;if(!el||!el.getAttribute)return;
+  if(el.type==="radio"){
+    if(!cfgDraft)return;
+    cfgDraft.activeIndex=Number(el.getAttribute("data-i"));
+    var row=cfgDraft.vaults[cfgDraft.activeIndex];
+    cfgRender();
+    if(!row||!row.id)return;
+    fetch("/api/vault/active",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({id:row.id})})
+      .then(function(r){return r.json()})
+      .then(function(j){if(j.ok){byId.cfgmsg.textContent="已切换到 "+row.name+"，页面即将重新加载。";setTimeout(function(){location.reload()},400)}else{byId.cfgmsg.textContent="切换失败："+(j.error||"")}})
+      .catch(function(err){byId.cfgmsg.textContent="切换失败："+err});
+    return;
+  }
+  var del=el.getAttribute("data-del");
+  if(del!==null&&cfgDraft){cfgDraft.vaults.splice(Number(del),1);cfgDraft.activeIndex=Math.max(0,Math.min(cfgDraft.activeIndex,cfgDraft.vaults.length-1));cfgRender()}
+});
+byId.cfgsave.onclick=function(){cfgSave()};
+
 async function loadDrafts(){try{var j=await (await fetch("/api/drafts")).json();if(!j.ok)return;var h="";if(j.drafts.length)h+='<div class="dgrp">收件箱 '+j.drafts.length+"</div>"+j.drafts.map(function(p){return '<div class="ditem" data-k="draft" data-p="'+esc(p)+'">'+esc(p)+"</div>"}).join("");if(j.compiled.length)h+='<div class="dgrp">已编译 '+j.compiled.length+"</div>"+j.compiled.map(function(p){return '<div class="ditem" data-k="compiled" data-p="'+esc(p)+'">'+esc(p)+"</div>"}).join("");byId.dlist.innerHTML=h||'<div class="dgrp">没有草稿</div>'}catch(err){}}
 byId.dlist.addEventListener("click",async function(e){var el=e.target.closest(".ditem");if(!el)return;dCur={kind:el.getAttribute("data-k"),path:el.getAttribute("data-p")};Array.prototype.forEach.call(byId.dlist.querySelectorAll(".ditem"),function(n){n.classList.remove("on")});el.classList.add("on");byId.dpath.textContent=dCur.kind+" · "+dCur.path;try{var j=await (await fetch("/api/draft?path="+encodeURIComponent(dCur.path))).json();byId.dtext.textContent=j.ok?j.text:"读取失败："+j.error}catch(err){byId.dtext.textContent="读取失败"}byId.dreport.textContent=""});
 byId.dcompile.onclick=async function(){if(dCur.kind!=="draft"){byId.dreport.textContent="先选一篇收件箱草稿";return}try{var j=await (await fetch("/api/compile",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({paths:[dCur.path]})})).json();var n=(j.notes||[])[0]||{};var verdict=n.error?"失败：":(n.written?"已写入 ":(n.skipped?"内容未变，跳过写入 ":"未写入 "));byId.dreport.textContent="编译："+verdict+(n.output||n.error||"")+NL+(n.changes||[]).join(NL);await loadDrafts();if(n.output){var key=function(s){return String(s||"").replace(/^inbox\//,"")};var want=key(n.output);var el=Array.prototype.find.call(byId.dlist.querySelectorAll(".ditem"),function(x){return x.getAttribute("data-k")==="compiled"&&key(x.getAttribute("data-p"))===want});if(el)el.click()}}catch(err){byId.dreport.textContent="编译失败"}};

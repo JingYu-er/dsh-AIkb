@@ -78,6 +78,17 @@ const VECTORS_DIR = '.wiki/index/vectors';
 // top-8. Lexical pages therefore always keep the top spots.
 const VECTOR_SHARE = 0.25;
 
+const STAGE_SCHEMA: SchemaNode = {
+  type: 'object',
+  required: true,
+  additionalProperties: false,
+  properties: {
+    ran: { type: 'boolean', required: true },
+    candidates: { type: 'integer', required: true },
+    ms: { type: 'integer', required: true },
+  },
+};
+
 const OUTPUT_SCHEMA: SchemaNode = {
   type: 'object',
   additionalProperties: false,
@@ -137,6 +148,30 @@ const OUTPUT_SCHEMA: SchemaNode = {
       },
     },
     elapsedMs: { type: 'integer', required: true },
+    trace: {
+      type: 'object',
+      required: true,
+      additionalProperties: false,
+      properties: {
+        query: { type: 'string', required: true },
+        queries: { type: 'integer', required: true },
+        stages: {
+          type: 'object',
+          required: true,
+          additionalProperties: false,
+          properties: {
+            lexical: STAGE_SCHEMA,
+            vector: STAGE_SCHEMA,
+            rerank: STAGE_SCHEMA,
+          },
+        },
+        noHitReason: {
+          type: 'string',
+          enum: ['empty-index', 'no-term-match', 'below-threshold', 'reranked-out'],
+        },
+        elapsedMs: { type: 'integer', required: true },
+      },
+    },
   },
 };
 
@@ -200,7 +235,10 @@ function renderReport(report: QueryReport): string {
     : 'BM25' + (report.searched.vectors === undefined ? '' : ' (vectors unavailable)'))
     + (report.reranked === true ? ' + rerank' : '')
     + (report.searched.queries === undefined ? '' : ' + fused(' + report.searched.queries + ' phrasings)');
-  if (report.hits.length === 0) return 'no hits for "' + report.query + '" across ' + report.searched.chunks + ' chunks (' + report.searched.sources + ' sources, ' + mode + ')';
+  if (report.hits.length === 0) {
+    const reason = report.trace.noHitReason === undefined ? '' : ' | reason ' + report.trace.noHitReason;
+    return 'no hits for "' + report.query + '" across ' + report.searched.chunks + ' chunks (' + report.searched.sources + ' sources, ' + mode + ')' + reason;
+  }
   const lines: string[] = [];
   const coverage = report.coverage === undefined ? '' : ' | coverage ' + report.coverage.toFixed(2);
   const notesMode = report.notes === undefined

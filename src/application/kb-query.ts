@@ -110,6 +110,28 @@ export interface QueryHit {
   readonly context?: string;
 }
 
+/** Why a query returned no hits, derived from the stage that removed the last candidate. */
+export type QueryNoHitReason = 'empty-index' | 'no-term-match' | 'below-threshold' | 'reranked-out';
+
+export interface QueryStageTrace {
+  readonly ran: boolean;
+  readonly candidates: number;
+  readonly ms: number;
+}
+
+export interface QueryTrace {
+  readonly query: string;
+  readonly queries: number;
+  readonly stages: {
+    readonly lexical: QueryStageTrace;
+    readonly vector: QueryStageTrace;
+    readonly rerank: QueryStageTrace;
+  };
+  /** Present only when the query returned no hits. */
+  readonly noHitReason?: QueryNoHitReason;
+  readonly elapsedMs: number;
+}
+
 export interface QueryReport {
   readonly ok: boolean;
   readonly error?: { code: string; message: string };
@@ -130,6 +152,7 @@ export interface QueryReport {
     readonly embed: boolean;
     readonly rerank: boolean;
   };
+  readonly trace: QueryTrace;
   readonly elapsedMs: number;
 }
 
@@ -560,7 +583,35 @@ export function emptyQueryReport(vaultRoot: string, queryText: string, error: un
   const code = error instanceof Error && 'code' in error && typeof (error as { code?: unknown }).code === 'string'
     ? (error as { code: string }).code
     : 'query.failed';
-  return { ok: false, error: { code, message }, vaultRoot, query: queryText, hits: [], searched: { sources: 0, chunks: 0 }, elapsedMs: 0 };
+  const trace: QueryTrace = {
+    query: queryText,
+    queries: 0,
+    stages: {
+      lexical: { ran: false, candidates: 0, ms: 0 },
+      vector: { ran: false, candidates: 0, ms: 0 },
+      rerank: { ran: false, candidates: 0, ms: 0 },
+    },
+    elapsedMs: 0,
+  };
+  return { ok: false, error: { code, message }, vaultRoot, query: queryText, hits: [], searched: { sources: 0, chunks: 0 }, trace, elapsedMs: 0 };
+}
+
+/**
+ * A zero-hit result names the stage that removed the last candidate. The counts come from this
+ * call's own stages, so an empty catalog, a corpus that lacks the words, and a vector store whose
+ * ids no longer belong to the index are distinguishable without inspecting the query text.
+ */
+function noHitReasonOf(
+  documents: number,
+  lexicalCandidates: number,
+  vectorCandidates: number,
+  rerankRan: boolean,
+  rerankCandidates: number,
+): QueryNoHitReason {
+  if (documents === 0) return 'empty-index';
+  if (lexicalCandidates === 0 && vectorCandidates === 0) return 'no-term-match';
+  if (rerankRan && rerankCandidates > 0) return 'reranked-out';
+  return 'below-threshold';
 }
 
 interface VectorHit {
@@ -659,6 +710,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     };
     return snapshot.index.search(text, searchPool, documentWeight, widen ? expansion : undefined);
   };
+  const lexicalStarted = Date.now();
   const ranked = rankFor(queryText, true);
   let fused: readonly { id: string; score: number }[] | undefined;
   if (variants.length > 1) {
@@ -673,6 +725,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
       .map(([id, score]) => ({ id, score }))
       .sort((left, right) => right.score - left.score);
   }
+  const lexicalMs = Date.now() - lexicalStarted;
 
   // Lexical-first interleaving. Fusing the two lists by rank (RRF) looked reasonable but the rank
   // gaps are tiny (1/61 vs 1/62), so a page that is mediocre in BM25 and mediocre in vector space
@@ -680,12 +733,15 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
   // unrelated chapter. Vectors therefore only fill the tail slots.
   const vectors = options.vectors;
   const queryVector = options.queryVector;
+  const vectorStage = vectors !== undefined && queryVector !== undefined && queryVector.length > 0;
   let vectorCount = 0;
   let vectorHits: VectorHit[] = [];
-  if (vectors !== undefined && queryVector !== undefined && queryVector.length > 0) {
+  const vectorStarted = Date.now();
+  if (vectorStage) {
     vectorHits = topVectorHits(vectors, queryVector, 64);
     if (vectorHits.length > 0) vectorCount = Math.min(vectors.ids.length, Math.floor(vectors.data.length / vectors.dims));
   }
+  const vectorMs = vectorStage ? Date.now() - vectorStarted : 0;
   // Score-level hybrid: normalise both lists by their best hit and mix. RRF failed here because the
   // rank gaps are tiny (1/61 vs 1/62), which let a mediocre-on-both page beat the best lexical one.
   const hybridWeight = Math.max(0, Math.min(1, options.hybridWeight ?? 0));
@@ -731,12 +787,15 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
   const rerank = options.rerank;
   let reranked = false;
   let order: readonly { id: string; score: number }[] | undefined;
+  let rerankCandidates = 0;
+  const rerankStarted = Date.now();
   if (rerank !== undefined) {
     const pool = options.rerankPool ?? DEFAULT_RERANK_POOL;
     const candidates: string[] = [];
     for (const hit of (fused ?? hybridOrder ?? ranked).slice(0, pool)) {
       if (snapshot.byId.has(hit.id) && !candidates.includes(hit.id)) candidates.push(hit.id);
     }
+    rerankCandidates = candidates.length;
     // Vector hits stay out of the rerank pool on purpose: the cross-encoder already judges the
     // query against each passage, and a drifted vector page displaces a lexically exact one
     // (measured: hybrid + rerank dropped MRR from 0.30 to 0.19 on the 26-question set).
@@ -759,6 +818,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
       reranked = true;
     }
   }
+  const rerankMs = rerank === undefined ? 0 : Date.now() - rerankStarted;
 
   if (order !== undefined) {
     for (const hit of order) {
@@ -863,6 +923,21 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
       hits = merged.slice(0, topK).map((entry) => entry.hit);
     }
   }
+  const noHitReason = hits.length === 0
+    ? noHitReasonOf(snapshot.documents.length, ranked.length, vectorHits.length, rerank !== undefined, rerankCandidates)
+    : undefined;
+  const elapsedMs = Date.now() - started;
+  const trace: QueryTrace = {
+    query: queryText,
+    queries: Math.max(1, variants.length),
+    stages: {
+      lexical: { ran: true, candidates: ranked.length, ms: lexicalMs },
+      vector: { ran: vectorStage, candidates: vectorHits.length, ms: vectorMs },
+      rerank: { ran: rerank !== undefined, candidates: rerankCandidates, ms: rerankMs },
+    },
+    ...(noHitReason === undefined ? {} : { noHitReason }),
+    elapsedMs,
+  };
   const hybrid = vectorCount > 0 && fused === undefined;
   const noteHits = hits.filter((hit) => hit.kind === 'note').length;
   return {
@@ -891,6 +966,7 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
     retrieval: hybrid ? 'hybrid' : 'bm25',
     ...(reranked ? { reranked: true } : {}),
     coverage: Number(snapshot.index.coverage(queryText).toFixed(3)),
-    elapsedMs: Date.now() - started,
+    trace,
+    elapsedMs,
   };
 }

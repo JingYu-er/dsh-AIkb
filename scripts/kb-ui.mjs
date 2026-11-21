@@ -14,6 +14,7 @@ const { appendAssociation, applyLinks, backupPathFor, parseQueue, renderQueue, r
 const { suggestLinks } = await import(distUrl('application/kb-suggest-links.js'));
 const { parseReviewQueue, reviewNotes } = await import(distUrl('application/kb-review.js'));
 const { judgePair } = await import(distUrl('application/kb-judge.js'));
+const { configFilePath, loadConfig, readiness, resolveVaultPath, saveConfig, toolchainPaths } = await import(distUrl('application/config-store.js'));
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 /** Paths arrive in two dialects: 'draft.md' (inbox-relative) and 'inbox/_compiled/…' (vault-relative). */
@@ -208,7 +209,10 @@ const readBody = async (req) => {
   return body;
 };
 
-let DEFAULT_VAULT = process.env.KB_VAULT ?? 'D:/JingYu/Desktop/ai-brain/MyObsidian';
+/** Last-resort vault: only the legacy env/option/binding paths still need it. */
+let DEFAULT_VAULT = process.env.KB_VAULT ?? '';
+/** The vault startUiServer was given; a fallback behind the config file, never ahead of it. */
+let PINNED_VAULT = '';
 let PROMOTE_DIR = process.env.KB_PROMOTE_DIR ?? '';
 const PORT = Number(process.env.KB_UI_PORT ?? 7341);
 const pageFile = fileURLToPath(new URL('./kb-ui.html', import.meta.url));
@@ -230,19 +234,43 @@ const bindingAt = (dir) => {
   }
   return undefined;
 };
-const vaultFor = (start) => {
-  if (process.env.KB_VAULT) return process.env.KB_VAULT;
-  if (start) {
-    let dir = start;
-    for (let depth = 0; depth < 8; depth += 1) {
-      const bound = bindingAt(dir);
-      if (bound !== undefined) return bound;
-      const parent = dirname(dir);
-      if (parent === dir) break;
-      dir = parent;
-    }
+/** Walk up from a file looking for a workspace binding; undefined when there is none. */
+const bindingVault = (start) => {
+  if (!start) return undefined;
+  let dir = start;
+  for (let depth = 0; depth < 8; depth += 1) {
+    const bound = bindingAt(dir);
+    if (bound !== undefined) return bound;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
   }
-  return DEFAULT_VAULT;
+  return undefined;
+};
+const loadConfigCached = () => {
+  try {
+    return loadConfig();
+  } catch {
+    return undefined;
+  }
+};
+/**
+ * Resolution order: an explicit address (id or path in the URL) wins; then the active vault in the
+ * config file, so one switch in the settings page applies to every tab; then the legacy overrides
+ * (KB_VAULT, the vault passed to startUiServer) and finally a workspace binding.
+ */
+const vaultFor = (start) => {
+  const address = String(start ?? '').trim();
+  const loaded = loadConfigCached();
+  const configured = loaded !== undefined && loaded.config.vaults.length > 0 ? loaded.config : undefined;
+  if (address !== '') {
+    if (configured !== undefined) return resolveVaultPath(configured, address);
+    return bindingVault(address) ?? (process.env.KB_VAULT ? resolve(process.env.KB_VAULT) : resolve(address));
+  }
+  if (configured !== undefined) return resolveVaultPath(configured, '');
+  if (process.env.KB_VAULT) return resolve(process.env.KB_VAULT);
+  if (PINNED_VAULT !== '') return PINNED_VAULT;
+  return bindingVault('') ?? DEFAULT_VAULT;
 };
 const fsFor = (vault) => ({
   root: vault,
@@ -545,6 +573,76 @@ const createUiServer = () => createServer(async (req, res) => {
     if (url.pathname === '/api/notes') {
       const vault = vaultFor(url.searchParams.get('address') || '');
       return send(200, 'application/json', JSON.stringify({ ok: true, vault, notes: listNotes(vault) }));
+    }
+    if (url.pathname === '/api/config' && req.method === 'GET') {
+      const loaded = loadConfigCached();
+      if (loaded === undefined) {
+        return send(500, 'application/json', JSON.stringify({ ok: false, error: 'kb.config.unreadable: could not load the config file' }));
+      }
+      const vaults = loaded.config.vaults.map((v) => ({ ...v, active: v.id === loaded.config.activeVault, exists: existsSync(v.dir) }));
+      return send(200, 'application/json', JSON.stringify({
+        ok: true,
+        configPath: configFilePath(),
+        revision: loaded.revision,
+        sources: loaded.sources,
+        warnings: loaded.warnings,
+        missing: loaded.missing,
+        configComplete: loaded.configComplete,
+        readiness: readiness(loaded.config),
+        toolchain: toolchainPaths(loaded.config),
+        config: loaded.config,
+        vaults,
+      }));
+    }
+    if (url.pathname === '/api/config' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const patch = {};
+      if (Array.isArray(parsed.vaults)) {
+        patch.vaults = parsed.vaults.map((entry) => ({
+          id: String(entry?.id ?? ''),
+          name: String(entry?.name ?? ''),
+          dir: String(entry?.dir ?? ''),
+          ...(typeof entry?.booksDir === 'string' && entry.booksDir.trim() !== '' ? { booksDir: entry.booksDir.trim() } : {}),
+        }));
+      }
+      for (const key of ['activeVault', 'packDir', 'toolchainDir', 'promoteDir', 'pythonPath', 'pythonLibPath', 'pythonMirror']) {
+        if (typeof parsed[key] === 'string') patch[key] = parsed[key];
+      }
+      for (const key of ['allowWrites', 'ocrEnabled', 'embedEnabled', 'embedOnIngest', 'rerankEnabled']) {
+        if (typeof parsed[key] === 'boolean') patch[key] = parsed[key];
+      }
+      if (typeof parsed.ocrWorkers === 'number' && Number.isFinite(parsed.ocrWorkers)) patch.ocrWorkers = parsed.ocrWorkers;
+      const result = await saveConfig(patch, { expectRevision: typeof parsed.expectRevision === 'string' && parsed.expectRevision !== '' ? parsed.expectRevision : undefined });
+      const status = result.ok ? 200 : result.error !== undefined ? 409 : 400;
+      return send(status, 'application/json', JSON.stringify(result));
+    }
+    if (url.pathname === '/api/vaults') {
+      const loaded = loadConfigCached();
+      const vaults = loaded === undefined ? [] : loaded.config.vaults.map((v) => ({ ...v, active: v.id === loaded.config.activeVault, exists: existsSync(v.dir) }));
+      return send(200, 'application/json', JSON.stringify({
+        ok: loaded !== undefined,
+        activeVault: loaded?.config.activeVault ?? '',
+        vaults,
+        ...(loaded === undefined ? { error: 'kb.config.unreadable' } : {}),
+      }));
+    }
+    if (url.pathname === '/api/vault/active' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const wanted = String(parsed.id ?? '');
+      const loaded = loadConfigCached();
+      if (loaded === undefined) return send(500, 'application/json', JSON.stringify({ ok: false, error: 'kb.config.unreadable' }));
+      if (!loaded.config.vaults.some((v) => v.id === wanted)) {
+        return send(400, 'application/json', JSON.stringify({ ok: false, error: 'kb.config.unknown-vault: ' + wanted }));
+      }
+      const result = await saveConfig({ activeVault: wanted }, { expectRevision: typeof parsed.expectRevision === 'string' && parsed.expectRevision !== '' ? parsed.expectRevision : undefined });
+      return send(result.ok ? 200 : 409, 'application/json', JSON.stringify({
+        ok: result.ok,
+        revision: result.revision,
+        problems: result.problems,
+        ...(result.error !== undefined ? { error: result.error } : {}),
+        activeVault: wanted,
+        vault: wanted,
+      }));
     }
     if (url.pathname === '/api/drafts') {
       const vault = vaultFor(url.searchParams.get('address') || '');
@@ -955,7 +1053,10 @@ const createUiServer = () => createServer(async (req, res) => {
  * as long as DSH does instead of leaving a detached process behind.
  */
 export function startUiServer(options = {}) {
-  if (options.vault) DEFAULT_VAULT = resolve(String(options.vault));
+  if (options.vault) {
+    PINNED_VAULT = resolve(String(options.vault));
+    DEFAULT_VAULT = PINNED_VAULT;
+  }
   if (options.promoteDir !== undefined) PROMOTE_DIR = String(options.promoteDir);
   const port = Number(options.port ?? PORT);
   const server = createUiServer();
