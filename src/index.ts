@@ -10,6 +10,8 @@ import { ensureOcrModel } from './adapters/pdf/ocr-model.js';
 import type { OcrModelReport } from './adapters/pdf/ocr-model.js';
 import { ensurePythonEnv } from './adapters/pdf/python-env.js';
 import type { PythonEnvReport } from './adapters/pdf/python-env.js';
+import { configFilePath, configMtime, loadConfig, resolveVaultPath, toolchainPaths } from './application/config-store.js';
+import type { KbConfig, KbConfigOverrides } from './application/config-store.js';
 import { registerTool } from './tools/definition.js';
 import { createKbDoctorTool } from './tools/kb-doctor.tool.js';
 import { createKbEmbedTool } from './tools/kb-embed.tool.js';
@@ -85,6 +87,10 @@ export interface KbPluginConfig {
   readonly glossaryExpansion?: boolean;
   /** Vault-relative folder kb_promote writes into. Unset disables promotion. */
   readonly promoteDir?: string;
+  /** Where kb_export_pack writes; unset: keep the value from ~/.dsh-aikb/config.json. */
+  readonly packDir?: string;
+  /** Shared root for venv, OCR graph and ONNX models; unset: keep the configured toolchain. */
+  readonly toolchainDir?: string;
 }
 
 interface ToolsRegistry {
@@ -157,6 +163,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
             port: Number(port),
             vault: configuredVault,
             promoteDir: (config as { promoteDir?: string }).promoteDir ?? '',
+            configPath: configFilePath(),
           });
           logBoot(bootRoot, 'ui-start', 'in-process ' + script + ' attempt ' + attempt);
           return;
@@ -175,7 +182,49 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     throw new Error('dsh-AIkb: the tools service is unavailable; declare inject = ["tools"] (see src/index.ts)');
   }
   const allowWrites = config.allowWrites === true;
-  const resolveRoot = (explicit?: string): string => resolveVaultRoot(config, explicit);
+  /**
+   * The config file is the source of truth and may change while DSH runs (settings page, panel).
+   * Reload on mtime instead of holding one snapshot: a stale vault list is how the panel ends up
+   * pointing at a directory the user removed ten minutes ago.
+   */
+  const configOverrides: KbConfigOverrides = {
+    ...(config.vaultPath !== undefined ? { vaultPath: config.vaultPath } : {}),
+    ...(config.allowWrites !== undefined ? { allowWrites: config.allowWrites } : {}),
+    ...(config.pythonPath !== undefined ? { pythonPath: config.pythonPath } : {}),
+    ...(config.pythonLibPath !== undefined ? { pythonLibPath: config.pythonLibPath } : {}),
+    ...(config.venvPath !== undefined ? { venvPath: config.venvPath } : {}),
+    ...(config.workspaceRoot !== undefined ? { workspaceRoot: config.workspaceRoot } : {}),
+    ...(config.pythonMirror !== undefined ? { pythonMirror: config.pythonMirror } : {}),
+    ...(config.ocrEnabled !== undefined ? { ocrEnabled: config.ocrEnabled } : {}),
+    ...(config.ocrWorkers !== undefined ? { ocrWorkers: config.ocrWorkers } : {}),
+    ...(config.embedEnabled !== undefined ? { embedEnabled: config.embedEnabled } : {}),
+    ...(config.embedOnIngest !== undefined ? { embedOnIngest: config.embedOnIngest } : {}),
+    ...(config.rerankEnabled !== undefined ? { rerankEnabled: config.rerankEnabled } : {}),
+    ...(config.promoteDir !== undefined ? { promoteDir: config.promoteDir } : {}),
+  };
+  let cachedConfig = loadConfig(configOverrides);
+  let cachedMtime = configMtime();
+  const configNow = (): KbConfig => {
+    const mtime = configMtime();
+    if (mtime !== cachedMtime) {
+      cachedConfig = loadConfig(configOverrides);
+      cachedMtime = mtime;
+    }
+    const current = cachedConfig.config;
+    // A patch-level toolchainDir pins the root for this deployment; the file cannot move it.
+    const pinned = config.toolchainDir !== undefined && config.toolchainDir.trim() !== ''
+      ? nodePath.resolve(config.toolchainDir.trim())
+      : '';
+    return pinned === '' ? current : { ...current, toolchainDir: pinned };
+  };
+  const toolchain = () => toolchainPaths(configNow());
+  const resolveRoot = (explicit?: string): string => {
+    const current = configNow();
+    // Discovery stays the fallback for a machine with no config file yet: an unconfigured
+    // install must still work when DSH is started inside a vault.
+    if (current.vaults.length === 0) return resolveVaultRoot(config, explicit);
+    return resolveVaultPath(current, explicit);
+  };
   const workspaceRoot = config.workspaceRoot !== undefined && config.workspaceRoot.trim() !== ''
     ? nodePath.resolve(config.workspaceRoot.trim())
     : process.cwd();
@@ -186,7 +235,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     const options = {
       workspaceRoot,
       pythonPath: config.pythonPath ?? '',
-      venvPath: config.venvPath ?? '',
+      venvPath: config.venvPath ?? toolchain().venv,
       mirrorUrl: config.pythonMirror ?? '',
       bootstrap,
     };
@@ -202,7 +251,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     const pending = ensureOcrEnv({
       workspaceRoot,
       pythonPath: config.pythonPath ?? '',
-      venvPath: config.venvPath ?? '',
+      venvPath: config.venvPath ?? toolchain().venv,
       mirrorUrl: config.pythonMirror ?? '',
       bootstrap: true,
     });
@@ -215,7 +264,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     if (ocrModelOnce !== undefined) return ocrModelOnce;
     const pending = ensureOcrModel({
       workspaceRoot,
-      modelDir: config.ocrModelDir ?? '',
+      modelDir: config.ocrModelDir ?? toolchain().ocr,
       modelUrl: config.ocrModelUrl ?? '',
       bootstrap: true,
     });
@@ -231,9 +280,9 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     const pending = ensureEmbeddingEnv({
       workspaceRoot,
       pythonPath: config.pythonPath ?? '',
-      venvPath: config.venvPath ?? '',
+      venvPath: config.venvPath ?? toolchain().venv,
       mirrorUrl: config.pythonMirror ?? '',
-      modelDir: config.embedModelDir ?? '',
+      modelDir: config.embedModelDir ?? toolchain().embed,
       modelUrl: config.embedModelUrl ?? '',
       bootstrap: true,
     });
@@ -249,9 +298,9 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     const pending = ensureRerankEnv({
       workspaceRoot,
       pythonPath: config.pythonPath ?? '',
-      venvPath: config.venvPath ?? '',
+      venvPath: config.venvPath ?? toolchain().venv,
       mirrorUrl: config.pythonMirror ?? '',
-      modelDir: config.rerankModelDir ?? '',
+      modelDir: config.rerankModelDir ?? toolchain().rerank,
       modelUrl: config.rerankModelUrl ?? '',
       bootstrap: true,
     });
