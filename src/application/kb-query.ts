@@ -1,4 +1,5 @@
 import { createBm25, createBm25FromPostings, mergeBm25Postings } from '../domain/bm25.js';
+import { identifierBoost } from './identifier-match.js';
 import type { Bm25Document, Bm25Hit, Bm25Index } from '../domain/bm25.js';
 import { catalogHashOf, makeSearchCache, readSearchCacheUnchecked, sourceTextHash, writeSearchCache } from './search-cache.js';
 import type { SearchCache, SearchCacheChunk } from './search-cache.js';
@@ -706,6 +707,9 @@ export async function runQuery(fs: QueryFs, queryText: string, topK = 8, options
       }
       const chapterScore = chapterScoreOf(snapshot, item.chapter, chapterScores);
       if (chapterScore > 0) weight *= 1 + 0.5 * chapterScore;
+      // A named standard, register or section number ("GB/T 19001", "PA0", "4.2.3") is a stronger
+      // statement of intent than any term frequency: the page that literally carries it wins ties.
+      weight *= identifierBoost(text, document.text);
       return weight;
     };
     return snapshot.index.search(text, searchPool, documentWeight, widen ? expansion : undefined);

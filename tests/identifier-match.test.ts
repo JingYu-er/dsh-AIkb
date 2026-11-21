@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractIdentifiers, matchIdentifiers, normalizeIdentifier } from '../src/application/identifier-match.js';
+import { extractIdentifiers, identifierBoost, matchIdentifiers, normalizeIdentifier } from '../src/application/identifier-match.js';
 
 test('normalizeIdentifier folds dash variants, spaces and case', () => {
   assert.equal(normalizeIdentifier('gb/t 1234'), 'GB/T1234');
@@ -51,4 +51,18 @@ test('queries without identifiers never score', () => {
   assert.deepEqual(matchIdentifiers('怎么配置时钟', '时钟配置见另一章'), { matched: [], score: 0 });
   assert.deepEqual(matchIdentifiers('', 'STM32F103'), { matched: [], score: 0 });
   assert.deepEqual(matchIdentifiers('ISO 9001', ''), { matched: [], score: 0 });
+});
+
+test('identifierBoost lifts a page that carries the named identifier', () => {
+  assert.equal(identifierBoost('GB/T 19001 质量管理', '见 GB/T 19001 第 4 章'), 1.45);
+  assert.equal(identifierBoost('GB/T 19001', '见 GB∕T 19001 第 4 章'), 1.45, 'a PDF division slash still matches');
+  assert.equal(identifierBoost('GB/T 19001', '质量管理体系要求'), 1);
+  assert.equal(identifierBoost('怎么配置时钟', '时钟配置见另一章'), 1, 'plain prose never boosts');
+});
+
+test('the boost is capped so one repeated number cannot dominate', () => {
+  const once = identifierBoost('ISO 9001', 'ISO 9001');
+  const many = identifierBoost('ISO 9001', 'ISO 9001 '.repeat(20));
+  assert.ok(once > 1);
+  assert.equal(many, 1.75, 'cap is 1 + 0.75');
 });

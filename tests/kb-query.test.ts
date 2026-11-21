@@ -130,3 +130,22 @@ test('the rerank stage reports the pool it scored and its wall time', async () =
   assert.ok(Number.isInteger(report.trace.stages.rerank.ms));
   assert.ok(report.trace.stages.rerank.ms >= 0);
 });
+
+test('a page carrying the named standard outranks a page that only shares the words', async () => {
+  clearQueryCache();
+  const fs = fakeVault('/vault-identifier-boost', [
+    {
+      sha256: SHA,
+      path: '书/质量体系.pdf',
+      pages: 2,
+      chunks: [
+        { id: 'gb:1:0', page: 1, text: '体系要求写在另一节，这里只作概述。' },
+        { id: 'gb:2:0', page: 2, text: '质量管理体系要求由 GB/T 19001 规定。' },
+      ],
+    },
+  ]);
+  const report = await runQuery(fs, 'GB/T 19001 质量管理体系要求', 2, { cache: false });
+  assert.equal(report.ok, true);
+  assert.equal(report.hits.length, 2);
+  assert.equal(report.hits[0]?.page, 2, 'the page with the standard number comes first');
+});

@@ -22,6 +22,7 @@ const MODEL = /\b[A-Z][A-Z0-9]*(?:-[A-Z0-9]+)*\d[A-Z0-9\-]*\b/g;
 export function normalizeIdentifier(token: string): string {
   return token
     .replace(/[\u2010-\u2015\u2212]/g, '-')
+    .replace(/[\u2044\u2215\uff0f]/g, '/')
     .replace(/\s+/g, '')
     .toUpperCase();
 }
@@ -48,7 +49,11 @@ const WEIGHT_SECTION = 1.5;
 
 /** Extract the identifiers a query or a chunk contains; duplicates collapse to their first spelling. */
 export function extractIdentifiers(text: string): string[] {
-  const input = String(text ?? '');
+  // Fold dash variants first: "GB—T 19001" is the same standard as "GB/T 19001", and the
+  // patterns below would otherwise split on the typographic dash and miss the number.
+  const input = String(text ?? '')
+    .replace(/[\u2010-\u2015\u2212]/g, '-')
+    .replace(/[\u2044\u2215\uff0f]/g, '/');
   const found: string[] = [];
   const seen = new Set<string>();
   const add = (token: string): void => {
@@ -95,4 +100,15 @@ export function matchIdentifiers(query: string, text: string): IdentifierMatch {
     score += weightOf(token) * Math.min(3, occurrences);
   }
   return { matched, score: Math.round(score * 100) / 100 };
+}
+
+/**
+ * Multiplier applied to a chunk's lexical score when it carries the identifiers named in the query.
+ * Capped so an exact standard or register number lifts a page but cannot outvote the question itself;
+ * the ceiling also keeps a page that repeats one number from dominating the whole book.
+ */
+export function identifierBoost(query: string, text: string): number {
+  const match = matchIdentifiers(query, text);
+  if (match.score <= 0) return 1;
+  return 1 + Math.min(0.75, 0.15 * match.score);
 }
