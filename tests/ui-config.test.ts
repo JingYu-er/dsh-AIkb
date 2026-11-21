@@ -169,6 +169,59 @@ test('vault init creates a skeleton, registers it and honours the write switch',
   assert.equal(existsSync(join(work, 'blocked-vault')), false);
 });
 
+test('job queue API: enqueue, list, cancel, prune', async () => {
+  process.env.KB_CONFIG = configPath;
+  const current = await get('/api/config');
+  if (current.config.allowWrites !== true) {
+    const on = await post('/api/config', { allowWrites: true, expectRevision: current.revision });
+    assert.equal(on.status, 200);
+  }
+  const enqueued = await post('/api/jobs/enqueue', { kind: 'judge', vault: vaultB, label: 'demo judge', payload: { path: 'only-b.md' } });
+  assert.equal(enqueued.status, 200);
+  assert.equal(enqueued.body.job.status, 'pending');
+  assert.ok(enqueued.body.path.startsWith(join(work, 'toolchain')), 'the queue lives under the configured toolchain dir');
+
+  const listed = await get('/api/jobs');
+  assert.equal(listed.summary.pending, 1);
+  const id = listed.jobs[0].id;
+
+  const cancelled = await post('/api/jobs/cancel', { id });
+  assert.equal(cancelled.status, 200);
+  assert.equal(cancelled.body.job.status, 'cancelled');
+
+  const missing = await post('/api/jobs/cancel', { id: 'nope' });
+  assert.equal(missing.status, 404);
+
+  const pruned = await post('/api/jobs/prune', { keepDone: 0 });
+  assert.equal(pruned.body.removed, 1);
+  const empty = await get('/api/jobs');
+  assert.equal(empty.jobs.length, 0);
+});
+
+test('history API: a save snapshots the old text and restore puts it back', async () => {
+  process.env.KB_CONFIG = configPath;
+  const note = 'history-demo.md';
+  const first = await post('/api/save?address=b', { path: note, text: 'one' + "\n" });
+  assert.equal(first.status, 200);
+  const second = await post('/api/save?address=b', { path: note, text: 'two' + "\n" });
+  assert.equal(second.status, 200);
+
+  const listed = await get('/api/history?address=b&path=' + note);
+  assert.equal(listed.ok, true);
+  assert.equal(listed.entries.length, 1, 'only overwritten text is kept');
+
+  const stamp = listed.entries[0].stamp as string;
+  const entry = await get('/api/history/entry?address=b&path=' + note + '&stamp=' + encodeURIComponent(stamp));
+  assert.equal(entry.ok, true);
+  assert.equal(entry.text, 'one' + "\n");
+
+  const restored = await post('/api/history/restore?address=b', { path: note, stamp });
+  assert.equal(restored.status, 200);
+  assert.equal(restored.body.text, 'one' + "\n");
+  const afterRestore = await get('/api/history?address=b&path=' + note);
+  assert.equal(afterRestore.entries.length, 2, 'a restore first captures what it overwrites');
+});
+
 after(async () => {
   if (server !== undefined) await new Promise<void>((resolve) => server!.close(() => resolve()));
   delete process.env.KB_CONFIG;

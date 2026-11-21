@@ -17,6 +17,8 @@ const { judgePair } = await import(distUrl('application/kb-judge.js'));
 const { configFilePath, loadConfig, readiness, resolveVaultPath, saveConfig, toolchainPaths } = await import(distUrl('application/config-store.js'));
 const { readVaultSchema, schemaTemplate, writeVaultSchema } = await import(distUrl('application/vault-schema.js'));
 const { createVault, parseTemplate, planRegistration } = await import(distUrl('application/kb-init.js'));
+const { captureHistory, listHistory, readHistoryEntry, restoreHistory } = await import(distUrl('application/vault-history.js'));
+const { cancelJob, claimNextJob, enqueueJob, finishJob, loadQueue, pruneQueue, recoverQueue, saveQueue, queueSummary } = await import(distUrl('application/job-queue.js'));
 
 const sha256 = (text) => createHash('sha256').update(text, 'utf8').digest('hex');
 /** Paths arrive in two dialects: 'draft.md' (inbox-relative) and 'inbox/_compiled/…' (vault-relative). */
@@ -255,6 +257,13 @@ const loadConfigCached = () => {
   } catch {
     return undefined;
   }
+};
+/** One queue per toolchain directory, so switching vaults never mixes their jobs. */
+const jobsDir = () => {
+  const loaded = loadConfigCached();
+  if (loaded === undefined) return process.env.KB_JOBS_DIR ?? '';
+  const root = toolchainPaths(loaded.config).root;
+  return root === '' ? (process.env.KB_JOBS_DIR ?? '') : join(root, 'jobs');
 };
 /**
  * Resolution order: an explicit address (id or path in the URL) wins; then the active vault in the
@@ -1069,6 +1078,111 @@ const createUiServer = () => createServer(async (req, res) => {
       }
       return send(200, 'application/json', JSON.stringify({ ok: true, path: rel, out, back, broken }));
     }
+    if (url.pathname === '/api/jobs' && req.method === 'GET') {
+      const loaded = await loadQueue(jobsDir());
+      return send(200, 'application/json', JSON.stringify({
+        ok: true,
+        path: loaded.path,
+        warnings: loaded.warnings,
+        summary: queueSummary(loaded.queue),
+        jobs: loaded.queue.jobs.slice(-100),
+      }));
+    }
+    if (url.pathname === '/api/jobs/enqueue' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const loaded = await loadQueue(jobsDir());
+      const kind = String(parsed.kind ?? 'judge');
+      const vault = typeof parsed.vault === 'string' && parsed.vault !== '' ? parsed.vault : vaultFor(url.searchParams.get('address') || '');
+      const enqueued = enqueueJob(loaded.queue, {
+        kind,
+        vault,
+        ...(typeof parsed.label === 'string' ? { label: parsed.label } : {}),
+        ...(parsed.payload !== undefined && typeof parsed.payload === 'object' ? { payload: parsed.payload } : {}),
+        ...(typeof parsed.maxAttempts === 'number' ? { maxAttempts: parsed.maxAttempts } : {}),
+      });
+      const saved = await saveQueue(enqueued.queue, jobsDir());
+      return send(saved.ok ? 200 : 500, 'application/json', JSON.stringify({ ok: saved.ok, job: enqueued.job, path: loaded.path, ...(saved.error === undefined ? {} : { error: saved.error }) }));
+    }
+    if (url.pathname === '/api/jobs/cancel' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const loaded = await loadQueue(jobsDir());
+      const cancelled = cancelJob(loaded.queue, String(parsed.id ?? ''));
+      const saved = await saveQueue(cancelled.queue, jobsDir());
+      return send(cancelled.job === undefined ? 404 : saved.ok ? 200 : 500, 'application/json', JSON.stringify({ ok: cancelled.job !== undefined && saved.ok, job: cancelled.job }));
+    }
+    if (url.pathname === '/api/jobs/recover' && req.method === 'POST') {
+      const loaded = await loadQueue(jobsDir());
+      const recovered = recoverQueue(loaded.queue);
+      const saved = await saveQueue(recovered.queue, jobsDir());
+      return send(saved.ok ? 200 : 500, 'application/json', JSON.stringify({ ok: saved.ok, recovered: recovered.recovered, summary: queueSummary(recovered.queue) }));
+    }
+    if (url.pathname === '/api/jobs/prune' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const loaded = await loadQueue(jobsDir());
+      const pruned = pruneQueue(loaded.queue, typeof parsed.keepDone === 'number' ? { keepDone: parsed.keepDone } : {});
+      const saved = await saveQueue(pruned.queue, jobsDir());
+      return send(saved.ok ? 200 : 500, 'application/json', JSON.stringify({ ok: saved.ok, removed: pruned.removed, summary: queueSummary(pruned.queue) }));
+    }
+    if (url.pathname === '/api/jobs/run' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const limit = typeof parsed.limit === 'number' && parsed.limit > 0 ? Math.min(5, parsed.limit) : 1;
+      const done = [];
+      let queuePath = '';
+      for (let index = 0; index < limit; index += 1) {
+        const loaded = await loadQueue(jobsDir());
+        queuePath = loaded.path;
+        const claimed = claimNextJob(loaded.queue);
+        if (claimed.job === undefined) break;
+        const job = claimed.job;
+        let outcome = { ok: false, error: 'kb.job.unsupported: ' + job.kind + ' jobs are not run by this panel' };
+        if (job.kind === 'judge') {
+          try {
+            const judged = await judgeRun(job.vault, typeof job.payload.path === 'string' ? job.payload.path : '', { model: true });
+            outcome = judged.ok
+              ? { ok: true, result: { engine: judged.engine, judged: judged.judged, conflicts: judged.conflicts, irrelevant: judged.irrelevant, refined: judged.refined, pending: judged.pending } }
+              : { ok: false, error: 'kb.job.failed: judge returned no result' };
+          } catch (error) {
+            outcome = { ok: false, error: 'kb.job.failed: ' + (error instanceof Error ? error.message : String(error)) };
+          }
+        }
+        const finished = finishJob(claimed.queue, job.id, outcome);
+        await saveQueue(finished.queue, jobsDir());
+        done.push({ id: job.id, kind: job.kind, ok: outcome.ok, ...(outcome.error === undefined ? {} : { error: outcome.error }) });
+      }
+      const after = await loadQueue(jobsDir());
+      return send(200, 'application/json', JSON.stringify({ ok: true, path: queuePath, ran: done, summary: queueSummary(after.queue) }));
+    }
+    if (url.pathname === '/api/history' && req.method === 'GET') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = url.searchParams.get('path') ?? '';
+      const report = await listHistory(vault, rel);
+      return send(200, 'application/json', JSON.stringify({ ok: true, ...report }));
+    }
+    if (url.pathname === '/api/history/entry' && req.method === 'GET') {
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = url.searchParams.get('path') ?? '';
+      const stamp = url.searchParams.get('stamp') ?? '';
+      const entry = await readHistoryEntry(vault, rel, stamp);
+      return send(entry.ok ? 200 : 404, 'application/json', JSON.stringify({ ...entry, path: rel, stamp }));
+    }
+    if (url.pathname === '/api/history/restore' && req.method === 'POST') {
+      const parsed = JSON.parse(await readBody(req));
+      const vault = vaultFor(url.searchParams.get('address') || '');
+      const rel = String(parsed.path ?? '');
+      const loaded = loadConfigCached();
+      const restored = await restoreHistory(vault, rel, String(parsed.stamp ?? ''), { allowWrites: loaded?.config.allowWrites === true });
+      if (!restored.ok) {
+        const status = restored.error?.code === 'kb.history.read-only' ? 403 : restored.error?.code === 'kb.history.missing' ? 404 : 400;
+        return send(status, 'application/json', JSON.stringify({ ...restored, path: rel }));
+      }
+      const full = notePath(vault, rel);
+      return send(200, 'application/json', JSON.stringify({
+        ...restored,
+        path: rel,
+        text: full !== undefined && existsSync(full) ? readFileSync(full, 'utf8') : undefined,
+        mtime: full !== undefined && existsSync(full) ? statSync(full).mtimeMs : undefined,
+      }));
+    }
     if (url.pathname === '/api/note') {
       const vault = vaultFor(url.searchParams.get('address') || '');
       const rel = url.searchParams.get('path') ?? '';
@@ -1095,7 +1209,11 @@ const createUiServer = () => createServer(async (req, res) => {
       const stamp = new Date().toISOString().replace(/[:.]/g, '-');
       const backup = join(vault, '.wiki/backups', stamp + '-' + String(parsed.path).split('/').join('__'));
       mkdirSync(dirname(backup), { recursive: true });
-      if (existsSync(full)) writeFileSync(backup, readFileSync(full));
+      if (existsSync(full)) {
+        writeFileSync(backup, readFileSync(full));
+        // Version history next to the vault sheet: newest 20 per note, restorable from the editor.
+        await captureHistory(vault, String(parsed.path), readFileSync(full, 'utf8'), { allowWrites: true, keep: 20 });
+      }
       mkdirSync(dirname(full), { recursive: true });
       writeFileSync(full, String(parsed.text ?? ''), 'utf8');
       return send(200, 'application/json', JSON.stringify({ ok: true, path: parsed.path, mtime: statSync(full).mtimeMs, backup }));
