@@ -171,7 +171,9 @@ const listQueues = (vault, kind) => {
       // unreadable queue: leave it out instead of failing the whole list
     }
   }
-  return out.sort((left, right) => right.pending - left.pending || left.path.localeCompare(right.path));
+  return out
+    .filter((queue) => queue.rows.length > 0)
+    .sort((left, right) => right.pending - left.pending || left.path.localeCompare(right.path));
 };
 /** Rewrite one review row's 判定/依据 cells in place, leaving every other byte of the table alone. */
 const patchReviewRow = (text, index, verdict, basis) => {
@@ -512,7 +514,8 @@ const createUiServer = () => createServer(async (req, res) => {
         kind: 'review',
         notes: report.notes,
         pending: report.pending,
-        queues: report.queues.length,
+        queues: report.queues.filter((queue) => queue.rows.length > 0).length,
+        empty: report.queues.filter((queue) => queue.rows.length === 0).length,
         warnings: report.warnings,
       }));
     }

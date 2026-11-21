@@ -446,8 +446,15 @@ export async function reviewNote(fs: ReviewFs, notePath: string, options: Review
     candidates.push({ path: similar.path, name: similar.name, score: similar.score, statements: olds.length, pairs: fresh });
   }
 
-  const written = options.write === true;
-  if (written) await fs.writeText(queuePath, serialized());
+  // An empty queue gives nobody anything to decide: never create one, and clear a stale one.
+  const written = options.write === true && rows.length > 0;
+  let deleted = false;
+  if (written) {
+    await fs.writeText(queuePath, serialized());
+  } else if (options.write === true && existingText !== undefined && fs.remove !== undefined) {
+    await fs.remove(queuePath);
+    deleted = true;
+  }
   return {
     path: queuePath,
     note: doc.path,
@@ -458,7 +465,7 @@ export async function reviewNote(fs: ReviewFs, notePath: string, options: Review
     merged: existing.length,
     added,
     removed,
-    deleted: false,
+    deleted,
   };
 }
 
