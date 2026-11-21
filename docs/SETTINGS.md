@@ -107,6 +107,22 @@ DSH 设置页、KB 面板与 agent 工具读的是同一份文档，改一处不
 | `POST /api/feedback` | `{path, text}` 追加一条反馈；只读模式 403，空文本 400 |
 | `POST /api/feedback/done` | `{index}` 把某条反馈的 `[ ]` 改成 `[x]` |
 
+## 设置页接口（宿主）
+
+设置页跑在 DSH 的 Web GUI 里，所以配置读写由插件在宿主上注册的一组 JSON 路由承担，前缀 `"/api/v1/aikb"`（与 KB 服务 7341 上的 `/api/...` 是两套入口，共用同一份引擎函数）：
+
+| 方法与路径 | 作用 |
+| --- | --- |
+| `GET /config` | 设置页首次加载：`configPath`、`revision`、`config`、`vaults`（带 `active`/`exists`）、`readiness`、`missing`、`sources`、`toolchain` |
+| `POST /config` | `{patch, expectRevision}`；字段白名单与校验同上，过期 revision 409 |
+| `GET /schema` / `POST /schema` | 读/写当前库的库约定 |
+| `GET /vaults` / `POST /vault/active` | 库清单 / 切换当前库 |
+| `POST /vault/init` | 新建库并登记 |
+| `GET /jobs`、`POST /jobs/cancel`、`/jobs/recover`、`/jobs/prune` | 队列摘要、取消、恢复、清理 |
+| `GET /feedback`、`POST /feedback`、`POST /feedback/done` | 页面反馈的列表、追加、标为已处理 |
+
+请求体上限 1 MiB；未知路径或错误方法返回 404 `kb.api.not-found`；所有失败都是 `{ok:false,error:{code,message}}`，页面按 code 给提示，不依赖 HTTP 文案。
+
 ## 旧配置迁移
 
 配置文件只有 `vaultPath` 时，读取阶段把它变成 `{id: "default", name: <目录名>, dir: <绝对路径>}`，
