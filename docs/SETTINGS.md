@@ -1,0 +1,78 @@
+# 配置与多知识库
+
+dsh-AIkb 的配置只有一份来源：`~/.dsh-aikb/config.json`（可用环境变量 `KB_CONFIG` 指向别处）。
+设置页、KB 面板与 agent 工具读的是同一份文档，改一处不需要重启；工具每次调用按文件 mtime 自动重载。
+
+## 打开设置页
+
+在 KB 面板顶部点「配置」页签。页面上可以：
+
+- 添加、重命名、移除知识库；每行给绝对路径。圆点选中哪一行，那一行就是「当前库」。
+- 切换当前库会立刻重新加载页面，其它页签（笔记、检索、草稿、矛盾）随之切到新库。
+- 填「知识包目录」（`kb_export_pack` 的落点）与「工具链目录」（虚拟环境、OCR 模型、向量模型共用的根）。
+- 勾选「允许写入」才会放行编译落盘、提升、链接应用等写操作。
+- 保存带乐观锁：页面读到 revision，保存时带上；若文件已被别处改过，保存会被拒绝并提示重载，而不是静默覆盖。
+
+## 配置字段
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `version` | 2 | 版本号；1 只有单库 `vaultPath`，读取时自动迁移为 id `default` 的库 |
+| `vaults` | 数组 | `{id, name, dir, booksDir?}`；`dir` 必须是绝对路径，`booksDir` 是库内相对目录，留空表示自动发现 |
+| `activeVault` | 字符串 | 当前库的 `id`；不存在时回退到第一个库并给 warning |
+| `packDir` | 字符串 | 知识包输出目录 |
+| `toolchainDir` | 字符串 | 工具链根；留空时用 `~/.dsh-aikb/toolchain` |
+| `pythonPath` / `pythonLibPath` / `pythonMirror` | 字符串 | 私有 Python 解释器、额外库路径、pip 镜像 |
+| `ocrEnabled` / `ocrWorkers` | 布尔 / 数字 | 扫描版 PDF 的本地 OCR |
+| `embedEnabled` / `embedOnIngest` | 布尔 | 向量检索与入库时顺带建向量 |
+| `rerankEnabled` | 布尔 | 交叉编码器重排（慢，默认关） |
+| `allowWrites` | 布尔 | 写操作总开关 |
+| `promoteDir` | 字符串 | `kb_promote` 的落点（库内相对目录），留空表示不提升 |
+
+## 工具链目录
+
+所有重产物都在一个根下，两个库不会各下一份模型：
+
+```
+<toolchainDir>/venv                       私有 Python 环境（PyMuPDF、RapidOCR）
+<toolchainDir>/models/ocr                 OCR 模型
+<toolchainDir>/models/multilingual-e5-small  向量模型
+<toolchainDir>/models/bge-reranker-base    重排模型
+<toolchainDir>/logs                       安装与运行日志
+```
+
+显式配置 `venvPath` 时，工具链根取它的父目录；`ocrModelDir` / `embedModelDir` / `rerankModelDir`
+仍然优先于上面的默认值。
+
+## 解析顺序
+
+工具调用与页面请求都按同一顺序挑库：
+
+1. 请求里显式给的库 id 或路径（`vaultPath` 工具参数、`?address=` 查询参数）；
+2. 配置里的 `activeVault`；
+3. 旧入口：环境变量 `KB_VAULT`、启动时传给 UI 的库；
+4. 工作区绑定 `.dsh-aikb.json` / `.dsh-kb.json`（向上最多 8 层）；
+5. 完全没有配置文件时，向上找含 `.obsidian` 的目录。
+
+显式路径即使不在配置列表里也照用——发现能力不该被配置绑死。
+
+## 就绪门
+
+`/api/config` 与 `kb_doctor` 会报 `missing`：`vaults`（没配库或目录不存在）、`packDir`、`toolchainDir`。
+工具调用只被前两个里的库问题拦住（`kb.not-ready`，错误里给配置文件路径与修法）；
+`packDir` / `toolchainDir` 只影响对应功能，不会让只读检索失败。
+
+## HTTP 接口
+
+| 方法与路径 | 作用 |
+| --- | --- |
+| `GET /api/config` | 返回 `config`、`revision`、`missing`、`warnings`、`sources`、`vaults`（带 `active`/`exists`）、`toolchain`、`configPath` |
+| `POST /api/config` | 部分更新；体里带 `expectRevision` 做乐观锁；校验失败返回 `problems`，revision 过期返回 409 与 `kb.config.stale` |
+| `GET /api/vaults` | 库清单与当前库 |
+| `POST /api/vault/active` | `{id}` 切换当前库，其它接口立即跟随 |
+
+## 旧配置迁移
+
+配置文件只有 `vaultPath` 时，读取阶段把它变成 `{id: "default", name: <目录名>, dir: <绝对路径>}`，
+并给一条 `kb.config.migrated` 提醒；写回时文件即升级为 `version: 2`。损坏或非对象的 JSON 不会让
+插件启动失败，而是按「未配置」处理并给 `kb.config.unreadable` / `kb.config.invalid` 提醒。

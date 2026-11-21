@@ -1,6 +1,6 @@
 {
   "name": "dsh-aikb",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "dsh-AIkb — Obsidian-native knowledge base for DeepSeek Harness: a compiler, not a retriever.",
   "repository": { "type": "git", "url": "git+https://github.com/JingYu-er/dsh-AIkb.git" },
   "homepage": "https://github.com/JingYu-er/dsh-AIkb#readme",
@@ -16,7 +16,7 @@
     "./client": "./client/kb-panel.js",
     "./package.json": "./package.json"
   },
-  "files": ["dist", "client", "scripts", "skills", "cordis.patch.yml", "README.md", "LICENSE", "docs/ARCHITECTURE.md", "docs/TOOLS.md"],
+  "files": ["dist", "client", "scripts", "skills", "cordis.patch.yml", "README.md", "LICENSE", "NOTICE", "docs/ARCHITECTURE.md", "docs/SETTINGS.md", "docs/TOOLS.md"],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

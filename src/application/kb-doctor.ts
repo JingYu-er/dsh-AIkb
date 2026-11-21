@@ -1,4 +1,5 @@
 import { DomainError } from '../shared/result.js';
+import type { ConfigSnapshot } from './config-store.js';
 
 export interface DoctorEntry {
   readonly relPath: string;
@@ -45,6 +46,8 @@ export interface DoctorReport {
   readonly error?: DoctorError;
   readonly vaultRoot: string;
   readonly vaultName: string;
+  /** Settings-page view of the config file; attached by the tool layer, absent when unreadable. */
+  readonly config?: ConfigSnapshot;
   readonly checks: readonly DoctorCheck[];
   readonly counts: DoctorCounts;
   readonly byExtension: Readonly<Record<string, number>>;

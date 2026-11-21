@@ -250,6 +250,17 @@ export function readiness(config: KbConfig): string[] {
   return missing;
 }
 
+/**
+ * Whether a tool call may proceed. An explicit vaultPath always passes (tests and scripts pin one);
+ * otherwise the config must name a vault directory that exists. packDir and toolchainDir are
+ * reported by readiness() but do not block reading, so a half-configured install stays searchable.
+ */
+export function vaultGate(config: KbConfig, explicit?: string): { ok: boolean; missing: string[] } {
+  if (asString(explicit) !== '') return { ok: true, missing: [] };
+  const missing = readiness(config).filter((field) => field === 'vaults' || field === 'vaults.dir');
+  return { ok: missing.length === 0, missing };
+}
+
 export function revisionOf(config: KbConfig): string {
   return createHash('sha256').update(JSON.stringify(config)).digest('hex').slice(0, 16);
 }
@@ -343,5 +354,44 @@ export function configMtime(): number {
     return statSync(configFilePath()).mtimeMs;
   } catch {
     return 0;
+  }
+}
+
+/** Plain, JSON-safe view of the config for kb_doctor, the settings page and logs. */
+export interface ConfigSnapshot {
+  path: string;
+  revision: string;
+  configComplete: boolean;
+  missing: string[];
+  warnings: string[];
+  sources: string[];
+  activeVault: string;
+  vaults: { id: string; name: string; dir: string; exists: boolean; active: boolean }[];
+  toolchain: ToolchainPaths;
+}
+
+/** Never throws: an unreadable config becomes undefined so callers can still report the vault. */
+export function configSnapshot(): ConfigSnapshot | undefined {
+  try {
+    const loaded = loadConfig();
+    return {
+      path: configFilePath(),
+      revision: loaded.revision,
+      configComplete: loaded.configComplete,
+      missing: loaded.missing,
+      warnings: loaded.warnings,
+      sources: loaded.sources,
+      activeVault: loaded.config.activeVault,
+      vaults: loaded.config.vaults.map((v) => ({
+        id: v.id,
+        name: v.name,
+        dir: v.dir,
+        exists: existsSync(v.dir),
+        active: v.id === loaded.config.activeVault,
+      })),
+      toolchain: toolchainPaths(loaded.config),
+    };
+  } catch {
+    return undefined;
   }
 }

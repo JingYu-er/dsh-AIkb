@@ -1,4 +1,5 @@
 import { NodeVaultFs } from '../adapters/fs/node-vault-fs.js';
+import { configSnapshot } from '../application/config-store.js';
 import { failedDoctorReport, runDoctor } from '../application/kb-doctor.js';
 import type { DoctorReport } from '../application/kb-doctor.js';
 import type { PythonEnvReport } from '../adapters/pdf/python-env.js';
@@ -116,6 +117,47 @@ const OUTPUT_SCHEMA: SchemaNode = {
         },
       },
     },
+    config: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        path: { type: 'string', required: true },
+        revision: { type: 'string', required: true },
+        configComplete: { type: 'boolean', required: true },
+        missing: { type: 'array', required: true, items: { type: 'string' } },
+        warnings: { type: 'array', required: true, items: { type: 'string' } },
+        sources: { type: 'array', required: true, items: { type: 'string' } },
+        activeVault: { type: 'string', required: true },
+        vaults: {
+          type: 'array',
+          required: true,
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              id: { type: 'string', required: true },
+              name: { type: 'string', required: true },
+              dir: { type: 'string', required: true },
+              exists: { type: 'boolean', required: true },
+              active: { type: 'boolean', required: true },
+            },
+          },
+        },
+        toolchain: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            root: { type: 'string', required: true },
+            venv: { type: 'string', required: true },
+            models: { type: 'string', required: true },
+            ocr: { type: 'string', required: true },
+            embed: { type: 'string', required: true },
+            rerank: { type: 'string', required: true },
+            logs: { type: 'string', required: true },
+          },
+        },
+      },
+    },
     writesEnabled: { type: 'boolean', required: true },
     nextActions: { type: 'array', required: true, items: { type: 'string' } },
   },
@@ -135,6 +177,16 @@ function renderReport(report: DoctorReport): string {
     ' | images: ' + report.counts.images,
   );
   lines.push('writes: ' + (report.writesEnabled ? 'enabled (inbox/, .wiki/)' : 'read-only'));
+  if (report.config !== undefined) {
+    const config = report.config;
+    const vault = config.vaults.find((entry) => entry.active);
+    lines.push(
+      'config: ' + config.path + ' | ' + (config.configComplete ? 'complete' : 'missing ' + config.missing.join(', ')) +
+      ' | vault: ' + (vault === undefined ? 'none' : vault.name + ' -> ' + vault.dir + (vault.exists ? '' : ' (missing)')) +
+      ' | toolchain: ' + config.toolchain.root,
+    );
+    for (const warning of config.warnings) lines.push('config warning: ' + warning);
+  }
   lines.push('books manifest: ' + (report.booksManifest.present ? report.booksManifest.entries + ' entries' : 'missing'));
   if (report.python !== undefined) {
     const python = report.python;
@@ -175,7 +227,9 @@ export function createKbDoctorTool(deps: KbDoctorDeps) {
         root = deps.resolveRoot(args.vaultPath);
         const vaultFs = new NodeVaultFs(root);
         const report = await runDoctor(vaultFs, { allowWrites: deps.allowWrites });
-        if (deps.inspectPython === undefined) return report;
+        const config = configSnapshot();
+        const withConfig = config === undefined ? report : { ...report, config };
+        if (deps.inspectPython === undefined) return withConfig;
         const python = await deps.inspectPython();
         const checks = [
           ...report.checks,
@@ -190,7 +244,7 @@ export function createKbDoctorTool(deps: KbDoctorDeps) {
         const nextActions = [...report.nextActions];
         if (!python.ok) nextActions.push('run kb_ingest once to prepare Python (venv at ' + python.venvPath + ')');
         return {
-          ...report,
+          ...withConfig,
           checks,
           nextActions,
           python: {

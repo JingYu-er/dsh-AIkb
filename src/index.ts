@@ -10,7 +10,7 @@ import { ensureOcrModel } from './adapters/pdf/ocr-model.js';
 import type { OcrModelReport } from './adapters/pdf/ocr-model.js';
 import { ensurePythonEnv } from './adapters/pdf/python-env.js';
 import type { PythonEnvReport } from './adapters/pdf/python-env.js';
-import { configFilePath, configMtime, loadConfig, resolveVaultPath, toolchainPaths } from './application/config-store.js';
+import { configFilePath, configMtime, loadConfig, resolveVaultPath, toolchainPaths, vaultGate } from './application/config-store.js';
 import type { KbConfig, KbConfigOverrides } from './application/config-store.js';
 import { registerTool } from './tools/definition.js';
 import { createKbDoctorTool } from './tools/kb-doctor.tool.js';
@@ -222,7 +222,11 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     const current = configNow();
     // Discovery stays the fallback for a machine with no config file yet: an unconfigured
     // install must still work when DSH is started inside a vault.
-    if (current.vaults.length === 0) return resolveVaultRoot(config, explicit);
+    if (current.vaults.length === 0 && !existsSync(configFilePath())) return resolveVaultRoot(config, explicit);
+    const gate = vaultGate(current, explicit);
+    if (!gate.ok) {
+      throw new Error('kb.not-ready: no usable knowledge base (' + gate.missing.join(', ') + '). Open the KB settings page and choose a vault, or pass vaultPath. Config: ' + configFilePath());
+    }
     return resolveVaultPath(current, explicit);
   };
   const workspaceRoot = config.workspaceRoot !== undefined && config.workspaceRoot.trim() !== ''

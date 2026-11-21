@@ -41,20 +41,35 @@ the vault is modified; `.obsidian/` is never touched.
 - Node >= 22
 - A Python 3.9+ interpreter on `PATH` (only to create the private venv). You do
   **not** need to install PyMuPDF yourself: the first `kb_ingest` creates
-  `<workspaceRoot>/.kb/venv` and installs PyMuPDF into it through a mirror, then
-  reuses it. `kb_doctor` only probes, it never installs.
+  `<toolchainDir>/venv` (default `~/.dsh-aikb/toolchain/venv`) and installs
+  PyMuPDF into it through a mirror, then reuses it. `kb_doctor` only probes, it
+  never installs.
 - Optional hybrid search: `kb_embed` creates the same kind of private environment
   on first use — it installs `tokenizers`/`onnxruntime` and downloads the
-  multilingual-e5-small ONNX model (~130 MB) into
-  `<workspaceRoot>/.kb/models/`. Everything runs locally; no model API, no tokens.
+  multilingual-e5-small ONNX model (~130 MB) into `<toolchainDir>/models/`.
+  Everything runs locally; no model API, no tokens.
 - Optional reranking: `kb_query` can reorder its candidates with a local
   bge-reranker-base cross-encoder (279 MB quantized, same private venv, downloaded
   on the first reranked query). Off by default: it costs ~1.5–2 s per warm query
   (the first one also loads the model) and it helps Chinese questions far more
   than English ones — see [Retrieval quality](#retrieval-quality).
 - A vault: a directory containing `.obsidian/`
+- Configuration: one file, `~/.dsh-aikb/config.json` (override with `KB_CONFIG`).
+  The **配置** tab in the KB panel edits it: several vaults with one active, the
+  pack directory, the shared toolchain directory and the write switch. A legacy
+  single-vault `vaultPath` is migrated on read. See
+  [docs/SETTINGS.md](docs/SETTINGS.md).
 
 (EPUB/DJVU parsers are not wired yet; `kb_ingest` reports them as errors.)
+
+### Compatibility
+
+| dsh-AIkb | Verified DSH |
+| --- | --- |
+| 0.2.x | 0.2.2-rc.1 |
+
+A row is added only after the plugin was run against that DSH build; newer builds
+may work but stay unverified until then.
 
 ## Install (local, development)
 
@@ -377,4 +392,7 @@ Hard boundaries, enforced in code rather than in prompts:
 
 ## License
 
-[Apache License 2.0](LICENSE) © 2026 JingYu
+Copyright 2026 JingYu.
+
+Licensed under the [Apache License 2.0](LICENSE). Third-party notices are in
+[NOTICE](NOTICE).

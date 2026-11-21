@@ -12,8 +12,10 @@ import {
   resolveVaultPath,
   saveConfig,
   slugId,
+  configSnapshot,
   toolchainPaths,
   validateConfig,
+  vaultGate,
 } from '../src/application/config-store.js';
 import type { KbConfig } from '../src/application/config-store.js';
 
@@ -315,6 +317,66 @@ test('validateConfig rejects empty and relative answers without touching disk', 
     assert.deepEqual(validateConfig(empty), [{ field: 'vaults', message: 'kb.config.vaults-empty: add at least one knowledge base' }]);
     const bad = validateConfig({ ...empty, vaults: [{ id: 'x', name: 'X', dir: 'rel/vault' }], packDir: 'rel' });
     assert.deepEqual(bad.map((p) => p.field), ['vaults.x.dir', 'path']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('configSnapshot is a plain view of the file, even when the file is broken', () => {
+  const dir = makeTemp('kb-config-snapshot-');
+  const vault = nodePath.join(dir, 'vault');
+  mkdirSync(vault, { recursive: true });
+  try {
+    withConfigFile(dir, () => {
+      const before = configSnapshot();
+      assert.ok(before !== undefined);
+      assert.equal(before.configComplete, false);
+      assert.ok(before.missing.includes('vaults'));
+      assert.deepEqual(before.vaults, []);
+      assert.equal(before.path, configFilePath());
+
+      const saved = saveConfig({
+        vaults: [{ id: 'main', name: 'Main', dir: vault }],
+        packDir: nodePath.join(dir, 'packs'),
+        toolchainDir: nodePath.join(dir, 'toolchain'),
+      });
+      assert.equal(saved.ok, true);
+      const after = configSnapshot();
+      assert.ok(after !== undefined);
+      assert.equal(after.configComplete, true);
+      assert.equal(after.vaults.length, 1);
+      assert.equal(after.vaults[0]?.active, true);
+      assert.equal(after.vaults[0]?.exists, true);
+      assert.equal(after.toolchain.root, nodePath.join(dir, 'toolchain'));
+
+      writeConfig(dir, '{ broken');
+      const broken = configSnapshot();
+      assert.ok(broken !== undefined, 'a broken file still yields a snapshot so the vault report survives');
+      assert.ok(broken.warnings[0]?.startsWith('kb.config.unreadable: '));
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('vaultGate blocks an unconfigured vault but lets an explicit path through', () => {
+  const dir = makeTemp('kb-config-gate-');
+  const vault = nodePath.join(dir, 'vault');
+  mkdirSync(vault, { recursive: true });
+  try {
+    withConfigFile(dir, () => {
+      const empty = loadConfig().config;
+      assert.deepEqual(vaultGate(empty), { ok: false, missing: ['vaults'] });
+      assert.deepEqual(vaultGate(empty, vault), { ok: true, missing: [] });
+
+      const configured = loadConfig({ vaultPath: vault }).config;
+      assert.deepEqual(vaultGate(configured), { ok: true, missing: [] });
+
+      const gone: KbConfig = { ...configured, vaults: [{ id: 'default', name: 'gone', dir: nodePath.join(dir, 'gone') }] };
+      assert.deepEqual(vaultGate(gone), { ok: false, missing: ['vaults.dir'] });
+      // packDir/toolchainDir are first-run questions, not read gates.
+      assert.equal(vaultGate({ ...configured, packDir: '', toolchainDir: '' }).ok, true);
+    });
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
