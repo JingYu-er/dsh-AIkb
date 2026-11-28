@@ -21,7 +21,7 @@ DSH 设置页、KB 面板与 agent 工具读的是同一份文档，改一处不
 | `version` | 2 | 版本号；1 只有单库 `vaultPath`，读取时自动迁移为 id `default` 的库 |
 | `vaults` | 数组 | `{id, name, dir, booksDir?}`；`dir` 必须是绝对路径，`booksDir` 是库内相对目录，留空表示自动发现 |
 | `activeVault` | 字符串 | 当前库的 `id`；不存在时回退到第一个库并给 warning |
-| `packDir` | 字符串 | 知识包输出目录 |
+| `packDir` | 字符串 | 知识包输出根；`kb_export_pack` 默认写到 `<packDir>/<库目录名>/<包名>`，每个库一个子目录 |
 | `toolchainDir` | 字符串 | 工具链根；留空时用 `~/.dsh-aikb/toolchain` |
 | `pythonPath` / `pythonLibPath` / `pythonMirror` | 字符串 | 私有 Python 解释器、额外库路径、pip 镜像 |
 | `ocrEnabled` / `ocrWorkers` | 布尔 / 数字 | 扫描版 PDF 的本地 OCR |

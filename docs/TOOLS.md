@@ -405,7 +405,8 @@ files a reader or another agent can search with nothing but `grep`.
 Input: `{ vaultPath?: string, name?: string, outDir?: string }`
 
 The destination is `outDir` when given (absolute, or relative to the configured
-pack directory), otherwise `<packDir>/<name | pack-YYYYMMDD-HHmmss>`. Writing is
+pack directory), otherwise `<packDir>/<vault 目录名>/<name | pack-YYYYMMDD-HHmmss>`
+(每个知识库一个子目录，两个库的同名知识包不会混在一起)。 Writing is
 required, so `allowWrites` must be true.
 
 Layout, exactly:

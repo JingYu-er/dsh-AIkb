@@ -190,6 +190,8 @@ test('chunk lines and manifest sources are ordered by path, then page', async ()
     const report = await packTool(root, packRoot).execute({}, {});
     assertSuccess(report);
     assert.match(nodePath.basename(report.packDir), /^pack-\d{8}-\d{6}$/);
+    // Packs are grouped by vault so two vaults cannot bury each other's exports.
+    assert.equal(nodePath.basename(nodePath.dirname(report.packDir)), nodePath.basename(root));
     const lines = await readChunkLines(report.packDir);
     assert.deepEqual(lines.map((line) => {
       const row = JSON.parse(line) as { path: string; page: number; text: string };

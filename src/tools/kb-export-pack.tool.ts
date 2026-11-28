@@ -85,6 +85,17 @@ function isPackName(name: string): boolean {
   return name !== '.' && name !== '..' && !name.includes('/') && !name.includes('\\') && !name.includes(':');
 }
 
+/**
+ * Directory name for one vault under the pack root. Two vaults must never share a folder,
+ * so every default export lands in its own: otherwise "two packs from 小红书" and "two
+ * packs from 电路" become four indistinguishable pack-* siblings.
+ */
+function vaultSlug(vaultRoot: string): string {
+  const base = nodePath.basename(vaultRoot);
+  const cleaned = base.replace(/[\\/:*?"<>|]/g, '-').replace(/\.+$/, '').trim();
+  return cleaned === '' || cleaned === '.' || cleaned === '..' ? 'vault' : cleaned;
+}
+
 export function createKbExportPackTool(deps: KbExportPackDeps) {
   return defineTool<KbExportPackArgs, PackReport>({
     name: 'kb_export_pack',
@@ -101,7 +112,7 @@ export function createKbExportPackTool(deps: KbExportPackDeps) {
       },
       outDir: {
         type: 'string',
-        description: 'Destination directory: absolute, or relative to the configured pack directory. Default <packDir>/<name>.',
+        description: 'Destination directory: absolute, or relative to the configured pack directory. Default <packDir>/<vault directory name>/<name>.',
       },
     },
     output: {
@@ -138,7 +149,7 @@ export function createKbExportPackTool(deps: KbExportPackDeps) {
       } else if (configuredPackDir === '') {
         return noPackDir();
       } else {
-        packDir = nodePath.resolve(configuredPackDir, name !== '' ? name : defaultPackName(generatedAt));
+        packDir = nodePath.resolve(configuredPackDir, vaultSlug(root), name !== '' ? name : defaultPackName(generatedAt));
       }
 
       try {
