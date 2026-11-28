@@ -244,6 +244,60 @@ instead of failing.
 Every hit carries the note/book path, the 1-based page, and the TOC section.
 Answers must be built from these hits; the tool never invents a citation.
 
+## kb_map
+
+The library map: one deterministic pass that records which documents, sections
+and entities the vault contains, so a global question ("compare every op-amp in
+the library") starts from an enumeration instead of a guess. It is rebuilt incrementally
+from the previous map, so an ingest followed by `build` only pays for the
+documents that changed; reading the map never rebuilds it.
+
+Input: `{ action?: "coverage" | "docs" | "entities" | "sections" | "build", query?: string, path?: string, limit?: number, vaultPath?: string }`
+
+`build` writes `.wiki/index/map.json`; the other actions read it and answer
+`kb.map.missing` until a map exists. `entities` accepts a query and matches the
+shortest alias and its family variants (ADA4505 finds ADA4505-1/-2/-4), which is
+how you check "did I miss a part" before answering. Output carries
+`coverage` (`docs`, `sections`, `entities`, `unparsed`), `docs[]`
+(`path`, `pages`, `sections`, `forms`), `sections[]` and `entities[]`
+(`id`, `label`, `forms`, `mentions`).
+
+## kb_facts
+
+A cache of comparable facts, one row per (entity, field), each backed by a
+verbatim quote from a page or note section. The cache is derived, not a ledger:
+it can be rebuilt from the sources at any time.
+
+Input: `{ action: "plan" | "write" | "table", entities?: string[], fields?: string[], qualifiers?: Record<string, string>, facts?: Fact[], extractor?: string, max?: number, vaultPath?: string }`
+
+A fact is `{ entity, field, value, unit?, qualifiers?, evidence: [{ path, unit?: "page" | "section" | "chunk", locator, quote }] }`.
+`plan` lists which cells are missing or stale and how many are still reusable.
+`write` requires writes to be enabled and verifies every quote against the
+current source: a quote that is not literally present is rejected with
+`kb.facts.no-evidence` and nothing is stored. `table` renders the markdown
+comparison, flags one entity disagreeing with itself as a conflict, and never
+treats two entities with different values as a conflict.
+
+## kb_memory
+
+The vault's long-term memory: conclusions, open questions, preferences and
+unresolved tensions that survive across conversations without replaying the
+transcript. Entries keep evidence when they make a factual claim, and decay by
+kind instead of all at once — open questions fade in about 90 days, preferences
+in about 180, tensions in about 120, verified facts only follow their evidence.
+
+Input: `{ action: "add" | "list" | "hot" | "touch" | "forget" | "consolidate", kind?, subject?, statement?, attribution?, scope?, status?, confidence?, importance?, evidence?, query?, limit?, budgetTokens?, ids?, force?, reason?, apply?, vaultPath?: string }`
+
+`add` rejects a claim whose quote cannot be resolved, stores preferences
+without evidence, and merges duplicates by subject and statement. `hot` returns
+the small set worth injecting at the start of a conversation (400 tokens by
+default). `touch` records reuse and slows decay. `forget` refuses to drop a
+preference or an open question unless `force` is set, and always leaves an
+audit line. `consolidate` reports merges, promotions, stale entries and disputed
+values; without `apply` it only plans, and it never deletes anything.
+Everything lives in `.wiki/memory/items.jsonl` with a human-readable
+`.wiki/memory/consolidation.log`.
+
 ## kb_lint
 
 Read-only hygiene pass over the markdown notes. It never edits a file, never

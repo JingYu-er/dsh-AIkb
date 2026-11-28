@@ -29,6 +29,7 @@ import { createKbInventoryTool } from './tools/kb-inventory.tool.js';
 import { createKbLinkApplyTool } from './tools/kb-link-apply.tool.js';
 import { createKbLinkReviewTool } from './tools/kb-link-review.tool.js';
 import { createKbMapTool } from './tools/kb-map.tool.js';
+import { createKbMemoryTool } from './tools/kb-memory.tool.js';
 import { createKbLintTool } from './tools/kb-lint.tool.js';
 import { createKbPromoteTool } from './tools/kb-promote.tool.js';
 import { createKbQueryTool } from './tools/kb-query.tool.js';
@@ -334,6 +335,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
     registerTool(ctx, createKbReviewTool({ allowWrites: () => allowWrites, resolveRoot }));
     registerTool(ctx, createKbMapTool({ resolveRoot }));
     registerTool(ctx, createKbFactsTool({ allowWrites: () => allowWrites, resolveRoot }));
+ registerTool(ctx, createKbMemoryTool({ resolveRoot }));
     registerTool(
       ctx,
       createKbIngestTool({

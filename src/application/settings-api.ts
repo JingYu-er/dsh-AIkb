@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import * as nodePath from 'node:path';
 import {
   configFilePath,
@@ -11,6 +12,7 @@ import type { KbConfig, KbConfigOverrides, ToolchainPaths } from './config-store
 import { cancelJob, loadQueue, pruneQueue, queueSummary, recoverQueue, saveQueue } from './job-queue.js';
 import { createVault, parseTemplate, planRegistration } from './kb-init.js';
 import { appendFeedback, markFeedbackDone, readFeedback } from './vault-feedback.js';
+import { ITEMS_PATH, parseItems, selectHot, summarizeMemory } from './vault-memory.js';
 import { readVaultSchema, schemaTemplate, writeVaultSchema } from './vault-schema.js';
 
 /**
@@ -282,6 +284,35 @@ function vaultsRoute(deps: SettingsApiDeps): SettingsApiResult {
   return success({ activeVault: loaded.config.activeVault, vaults: vaultViews(loaded.config) });
 }
 
+/** The settings page shows what the agent remembers; editing stays in the kb_memory tool. */
+async function memoryRoute(deps: SettingsApiDeps): Promise<SettingsApiResult> {
+  const root = deps.vaultFor('');
+  const file = nodePath.join(root, ITEMS_PATH.split('/').join(nodePath.sep));
+  let items: ReturnType<typeof parseItems> = [];
+  try {
+    items = parseItems(await readFile(file, 'utf8'));
+  } catch {
+    items = [];
+  }
+  const counts = summarizeMemory(items);
+  const hot = selectHot(items, { budgetTokens: 400, now: new Date().toISOString() });
+  return success({
+    path: ITEMS_PATH,
+    total: counts.total,
+    byKind: counts.byKind,
+    byStatus: counts.byStatus,
+    hot: hot.hot.map((item) => ({ id: item.id, kind: item.kind, subject: item.subject, statement: item.statement })),
+    tokens: hot.tokens,
+    recent: counts.recent.map((item) => ({
+      id: item.id,
+      kind: item.kind,
+      subject: item.subject,
+      statement: item.statement,
+      status: item.status,
+    })),
+  });
+}
+
 function vaultActiveRoute(req: SettingsApiRequest, deps: SettingsApiDeps): SettingsApiResult {
   const parsed = jsonBody(req);
   if (!parsed.ok) return parsed.result;
@@ -406,6 +437,7 @@ export async function handleSettingsApi(req: SettingsApiRequest, deps: SettingsA
       if (pathname === '/config') return configPayload(deps);
       if (pathname === '/schema') return await schemaReadRoute(url, deps);
       if (pathname === '/vaults') return vaultsRoute(deps);
+    if (pathname === '/memory') return await memoryRoute(deps);
       if (pathname === '/jobs') return await jobsRoute(deps);
       if (pathname === '/feedback') return await feedbackReadRoute(url, deps);
     } else if (method === 'POST') {

@@ -1,6 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import * as nodePath from 'node:path';
 import { configFilePath, loadConfig, resolveVaultPath } from '../src/application/config-store.js';
 import type { KbConfig } from '../src/application/config-store.js';
@@ -231,6 +231,37 @@ test('vault/active switches the active vault and validates the id', async () => 
   assert.equal(stale.status, 409);
   assert.equal(stale.body.error.code, 'kb.config.stale');
   assert.equal((await api('GET', '/vaults')).body.activeVault, 'b');
+});
+
+test('memory route reports the active vault ledger and hot set', async () => {
+  await seed();
+  const empty = await api('GET', '/memory');
+  assert.equal(empty.status, 200);
+  assert.equal(empty.body.ok, true);
+  assert.equal(empty.body.total, 0);
+  assert.deepEqual(empty.body.hot, []);
+
+  mkdirSync(nodePath.join(vaultA, '.wiki', 'memory'), { recursive: true });
+  const item = {
+    id: 'm-abc',
+    kind: 'claim',
+    subject: '库存',
+    statement: '库存为 120 件',
+    evidence: [],
+    status: 'verified',
+    confidence: 0.6,
+    importance: 2,
+    createdAt: '2026-04-01T00:00:00.000Z',
+    lastUsedAt: '2026-04-01T00:00:00.000Z',
+    useCount: 0,
+  };
+  writeFileSync(nodePath.join(vaultA, '.wiki', 'memory', 'items.jsonl'), JSON.stringify(item) + '\n', 'utf8');
+  const loaded = await api('GET', '/memory');
+  assert.equal(loaded.body.total, 1);
+  assert.equal(loaded.body.byKind.claim, 1);
+  assert.equal(loaded.body.hot.length, 1);
+  assert.equal(loaded.body.hot[0].subject, '库存');
+  assert.equal(loaded.body.path, '.wiki/memory/items.jsonl');
 });
 
 test('feedback routes append, list and mark rows done', async () => {
