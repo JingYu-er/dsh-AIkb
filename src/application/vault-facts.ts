@@ -592,7 +592,8 @@ function findConflicts(entries: readonly FactEntry[]): FactConflict[] {
   const buckets = new Map<string, FactEntry[]>();
   for (const entry of entries) {
     if (entry.status !== 'verified') continue;
-    const key = [entry.field, ...qualifierPairs(entry.qualifiers)].join('\u0000');
+    // Two entities differing is the point of the table; only one cell disagreeing with itself is a conflict.
+    const key = [entry.entityId, entry.field, ...qualifierPairs(entry.qualifiers)].join('\u0000');
     const bucket = buckets.get(key);
     if (bucket === undefined) buckets.set(key, [entry]);
     else bucket.push(entry);

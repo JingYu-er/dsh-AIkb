@@ -380,7 +380,7 @@ test('write is refused when writes are disabled', async () => {
   });
 });
 
-test('table renders a markdown table and reports cross-entity conflicts', async () => {
+test('table renders a markdown table and keeps entities from conflicting', async () => {
   await withVault(async (root, factsTool) => {
     await writeFactsFile(root, [
       factEntry({ entityId: 'lm7805', entityLabel: 'LM7805', value: '5', unit: 'V' }),
@@ -396,14 +396,10 @@ test('table renders a markdown table and reports cross-entity conflicts', async 
     assert.match(table, /\| 实体 \| 值 \| 状态 \| 出处 \|/u);
     assert.match(table, /LM7805/u);
     assert.match(table, /5 V/u);
-    const conflicts = report.conflicts ?? [];
-    assert.equal(conflicts.length, 1);
-    const conflict = conflicts[0];
-    assert.ok(conflict !== undefined);
-    assert.equal(conflict.field, 'output_voltage');
-    assert.deepEqual(conflict.values, ['5', '9']);
+    // Two entities with different values are a comparison; only one cell disagreeing with itself is a conflict.
+    assert.deepEqual(report.conflicts ?? [], []);
     const rendered = factsTool.output.render({ action: 'table' }, report)[0]?.text ?? '';
-    assert.match(rendered, /冲突 output_voltage/u);
+    assert.match(rendered, /冲突 0 组/u);
   });
 });
 

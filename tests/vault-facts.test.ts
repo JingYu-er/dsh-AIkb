@@ -392,22 +392,29 @@ test('compareFacts groups rows by field with evidence counts', () => {
   assert.deepEqual(comparison.conflicts, []);
 });
 
-test('compareFacts reports a numeric conflict between verified facts', () => {
+test('compareFacts conflicts only when one entity disagrees with itself', () => {
   const conflicting = compareFacts([
     makeFact('A-100', 'mass', '12 kg', { status: 'verified', unit: 'kg' }),
-    makeFact('B-200', 'mass', '14 kg', { status: 'verified', unit: 'kg', path: 'notes/b-200.md' }),
+    makeFact('A-100', 'mass', '14 kg', { status: 'verified', unit: 'kg', path: 'notes/a-100-2.md' }),
   ]);
   assert.deepEqual(conflicting.conflicts, [{ field: 'mass', values: ['12 kg', '14 kg'] }]);
 
+  // Two entities differing is the comparison, not a contradiction.
+  const acrossEntities = compareFacts([
+    makeFact('A-100', 'mass', '12 kg', { status: 'verified', unit: 'kg' }),
+    makeFact('B-200', 'mass', '14 kg', { status: 'verified', unit: 'kg', path: 'notes/b-200.md' }),
+  ]);
+  assert.deepEqual(acrossEntities.conflicts, []);
+
   const differentUnits = compareFacts([
     makeFact('A-100', 'mass', '12 kg', { status: 'verified', unit: 'kg' }),
-    makeFact('B-200', 'mass', '14 cm', { status: 'verified', unit: 'cm', path: 'notes/b-200.md' }),
+    makeFact('A-100', 'mass', '14 cm', { status: 'verified', unit: 'cm', path: 'notes/a-100-2.md' }),
   ]);
   assert.deepEqual(differentUnits.conflicts, []);
 
   const agreeing = compareFacts([
     makeFact('A-100', 'mass', '12 kg', { status: 'verified', unit: 'kg' }),
-    makeFact('B-200', 'mass', '12.0 kg', { status: 'verified', unit: 'kg', path: 'notes/b-200.md' }),
+    makeFact('A-100', 'mass', '12.0 kg', { status: 'verified', unit: 'kg', path: 'notes/a-100-2.md' }),
   ]);
   assert.deepEqual(agreeing.conflicts, []);
 });
