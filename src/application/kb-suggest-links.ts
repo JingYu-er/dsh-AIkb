@@ -26,6 +26,21 @@ export interface SuggestReport {
   readonly elapsedMs: number;
 }
 
+/** Why the boilerplate filter needs a corpus: below this many notes every term is rare. */
+const BOILERPLATE_MIN_DOCS = 12;
+/** A term carried by most of the corpus describes the template, not a shared subject. */
+const BOILERPLATE_DF_RATIO = 0.6;
+
+/**
+ * Document frequency at or above which a term counts as boilerplate for this corpus.
+ * Returns undefined while the corpus is too small for the ratio to carry information, in
+ * which case no term is filtered and ranking is unchanged.
+ */
+function boilerplateCutoff(total: number): number | undefined {
+  if (total < BOILERPLATE_MIN_DOCS) return undefined;
+  return Math.max(3, Math.ceil(total * BOILERPLATE_DF_RATIO));
+}
+
 /** One note's idf-weighted term vector plus the link targets it already carries. */
 export interface NoteVector {
   readonly path: string;
@@ -242,6 +257,7 @@ export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { 
       .sort((left, right) => right.cosine - left.cosine);
     let taken = 0;
     const rareCutoff = Math.max(3, Math.floor(total * 0.012));
+    const boilerplate = boilerplateCutoff(total);
     for (const candidate of candidates) {
       if (taken >= perNote) break;
       const other = docs[candidate.target];
@@ -252,9 +268,14 @@ export async function suggestLinks(fs: SuggestFs, vaultRoot: string, options: { 
       if (other.name.toLowerCase() === doc.name.toLowerCase() && /^inbox\//i.test(doc.path) !== /^inbox\//i.test(other.path)) continue;
       const shared = [...doc.weights.keys()]
         .filter((term) => other.weights.has(term))
+        .filter((term) => boilerplate === undefined || (df.get(term) ?? 0) < boilerplate)
         .sort((left, right) => (doc.weights.get(right) ?? 0) - (doc.weights.get(left) ?? 0));
+      // A pair whose only common words appear in most of the vault shares a template,
+      // not a subject, so it has nothing to suggest.
+      if (shared.length === 0) continue;
       const specific = shared.some((term) => (df.get(term) ?? 0) <= rareCutoff);
-      // Boilerplate sections (引脚/单位/说明) make every datasheet note look alike; demand a rare term unless the pair is nearly identical.
+      // Similarity alone is not enough: two notes on one broad subject share plenty of
+      // ordinary words without being about the same thing, so demand one rare term.
       if (!specific && candidate.cosine < 0.85) continue;
       picked.push({ from: doc.path, to: other.name, why: whyTerms(shared), confidence: Number(candidate.cosine.toFixed(3)) });
       taken += 1;

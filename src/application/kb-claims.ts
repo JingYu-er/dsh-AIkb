@@ -4,13 +4,18 @@
  * Embedding similarity answers "are these two notes about the same thing", which is not
  * what a contradiction queue needs: two tutorials about the same topic share plenty of
  * words and never disagree. A contradiction needs a shared attribute carrying two
- * incompatible values ("稳压值 3.3 V" vs "稳压值 5 V"), so this module extracts
- * (key, value) claims and only calls a conflict when the same key holds differing values
- * in the same unit family.
+ * incompatible values ("限值 3.3 V" vs "限值 5 V"), so this module extracts (key, value)
+ * claims and only calls a conflict when the same key holds differing values in the same
+ * unit family.
+ *
+ * Nothing here names a subject area: unit tables, aliases and extra stop keys arrive
+ * through {@link ClaimProfile}. With the default (empty) profile an unrecognised unit
+ * spelling only compares against itself, so a vault needs no configuration to work and
+ * gains real conversions only when it declares them.
  */
 
 export interface Claim {
-  /** Normalized attribute name, e.g. "波特率" or "baud". */
+  /** Normalized attribute name, e.g. "rated value". */
   readonly key: string;
   /** Attribute as written in the note. */
   readonly rawKey: string;
@@ -20,75 +25,53 @@ export interface Claim {
   readonly sentence: string;
 }
 
-interface UnitInfo {
+/** One unit spelling and how it converts into a comparison family. */
+export interface ClaimUnit {
+  /** Unit spelling as it appears in a note, lower-case (e.g. "hz", "ms"). */
+  readonly spelling: string;
+  /** Unit family; two values conflict only when their families match. */
   readonly family: string;
+  /** Multiplier into the family's base unit. */
   readonly factor: number;
 }
 
-/** Longest unit spellings first so "ms" never parses as "m". */
-const UNITS: readonly (readonly [string, UnitInfo])[] = [
-  ['ghz', { family: 'frequency', factor: 1e9 }],
-  ['mhz', { family: 'frequency', factor: 1e6 }],
-  ['khz', { family: 'frequency', factor: 1e3 }],
-  ['hz', { family: 'frequency', factor: 1 }],
-  ['mω', { family: 'resistance', factor: 1e6 }],
-  ['kω', { family: 'resistance', factor: 1e3 }],
-  ['ω', { family: 'resistance', factor: 1 }],
-  ['mv', { family: 'voltage', factor: 1e-3 }],
-  ['kv', { family: 'voltage', factor: 1e3 }],
-  ['v', { family: 'voltage', factor: 1 }],
-  ['ma', { family: 'current', factor: 1e-3 }],
-  ['ua', { family: 'current', factor: 1e-6 }],
-  ['a', { family: 'current', factor: 1 }],
-  ['uf', { family: 'capacitance', factor: 1e-6 }],
-  ['nf', { family: 'capacitance', factor: 1e-9 }],
-  ['pf', { family: 'capacitance', factor: 1e-12 }],
-  ['f', { family: 'capacitance', factor: 1 }],
-  ['mh', { family: 'inductance', factor: 1e-3 }],
-  ['uh', { family: 'inductance', factor: 1e-6 }],
-  ['h', { family: 'inductance', factor: 1 }],
-  ['ms', { family: 'time', factor: 1e-3 }],
-  ['us', { family: 'time', factor: 1e-6 }],
-  ['ns', { family: 'time', factor: 1e-9 }],
-  ['s', { family: 'time', factor: 1 }],
-  ['mm', { family: 'length', factor: 1e-3 }],
-  ['cm', { family: 'length', factor: 1e-2 }],
-  ['m', { family: 'length', factor: 1 }],
-  ['%', { family: 'percent', factor: 1 }],
-  ['℃', { family: 'temperature', factor: 1 }],
-  ['°c', { family: 'temperature', factor: 1 }],
-];
+/**
+ * Subject-matter knowledge a vault may inject. Every field is optional and the default
+ * profile is empty on purpose: the module itself knows document structure only.
+ */
+export interface ClaimProfile {
+  /** Unit spellings the vault wants converted, longest spelling first is not required. */
+  readonly units?: readonly ClaimUnit[];
+  /** Extra keys and values that name a column or field rather than assert a value. */
+  readonly stopKeys?: readonly string[];
+  /** Alternative spellings that mean the same attribute. */
+  readonly aliases?: ReadonlyMap<string, string>;
+  /** Trailing words that mark a column title rather than a parameter name. */
+  readonly aliasSuffix?: RegExp;
+}
 
-/** Keys that describe the file, never a technical claim. */
-const STOP_KEYS = new Set([
-  'title', '标题', 'tags', 'tag', 'type', 'date', 'created', 'updated',
-  '创建时间', '修改时间', '来源', 'source', 'author', '作者', '链接', 'url', 'note', '备注',
-  // Table column headers that name a column, not a parameter.
-  '属性', '参数', '符号', '说明', '示例', '含义', '描述', '名称', '类型', '作用', '功能',
-  '项目', '型号', '器件', '特性', '单位', '值', '方法', '条件', '用途', '定义', '备注',
-]);
+/** The zero-knowledge profile: no units, no aliases, no extra stop keys. */
+export const DEFAULT_CLAIM_PROFILE: ClaimProfile = Object.freeze({
+  units: Object.freeze([]) as readonly ClaimUnit[],
+  stopKeys: Object.freeze([]) as readonly string[],
+  aliases: new Map<string, string>(),
+});
 
 /** A parameter name is words/digits, not LaTeX, code, markup or a table separator. */
 const KEY_SHAPE = /^[A-Za-z0-9\u4e00-\u9fa5][A-Za-z0-9\u4e00-\u9fa5 _./\-]{1,23}$/;
 
-/** Names that mean the same parameter, so "共模电压增益" and "共模增益" are compared. */
-const ALIASES = new Map<string, string>([
-  ['共模电压增益', '共模增益'], ['共模增益', '共模增益'], ['acm', '共模增益'],
-  ['差模电压增益', '差模增益'], ['差模增益', '差模增益'], ['adm', '差模增益'],
-  ['输入阻抗', '输入电阻'], ['输出阻抗', '输出电阻'], ['in', '输入电阻'],
-  ['电源电压', '电源电压'], ['工作电压', '电源电压'], ['供电电压', '电源电压'], ['vcc', '电源电压'], ['vdd', '电源电压'], ['vin', '电源电压'],
-  ['工作温度', '工作温度'], ['工作温度范围', '工作温度'], ['温度范围', '工作温度'], ['环境温度', '工作温度'],
-  ['封装形式', '封装'], ['封装类型', '封装'], ['package', '封装'],
-  ['baud rate', '波特率'], ['baudrate', '波特率'], ['baud', '波特率'],
-  ['数据速率', '数据速率'], ['传输速率', '数据速率'], ['数据率', '数据速率'], ['datarate', '数据速率'],
-  ['增益带宽积', 'gbw'], ['gain bandwidth', 'gbw'],
-  ['静态电流', '静态电流'], ['iq', '静态电流'], ['quiescent current', '静态电流'],
-  ['输入失调电压', '失调电压'], ['失调电压', '失调电压'], ['offset voltage', '失调电压'], ['vos', '失调电压'],
-  ['共模抑制比', 'cmrr'], ['电源抑制比', 'psrr'],
-  ['电源电流', '电源电流'], ['工作电流', '工作电流'],
+/**
+ * Document metadata and generic table column titles. These describe a file or a column
+ * (frontmatter keys, "attribute | value" headers), never a claim about a subject, so they
+ * stay in the module even with an empty profile.
+ */
+const DOCUMENT_KEYS = new Set([
+  'title', '标题', 'tags', 'tag', 'type', 'date', 'created', 'updated',
+  '创建时间', '修改时间', '来源', 'source', 'author', '作者', '链接', 'url', 'note', '备注',
+  // Table column headers that name a column, not a parameter.
+  '属性', '参数', '符号', '说明', '示例', '含义', '描述', '名称', '类型', '作用', '功能',
+  '项目', '单位', '值', '方法', '条件', '用途', '定义',
 ]);
-/** Column titles that end a parameter name ("工作频率参数" -> "工作频率"). */
-const ALIAS_SUFFIX = /(?:参数|指标|数值)$/;
 
 const KEY_MAX = 24;
 const SENTENCE_MAX = 200;
@@ -96,18 +79,17 @@ const SENTENCE_MAX = 200;
 const STRIP_MARKUP = /[\x60*_~]/g;
 const FENCE = /^\s*(\x60{3,}|~{3,})/;
 
-function normalizeKey(raw: string): string {
+function normalizeKey(raw: string, profile: ClaimProfile): string {
   const base = raw
     .replace(/^[\s>*\-#|]+/, '')
     .replace(STRIP_MARKUP, '')
     .replace(/[（(].*?[)）]$/, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .toLowerCase()
-    .replace(ALIAS_SUFFIX, '')
-    .trim();
-  const alias = ALIASES.get(base);
-  return alias ?? base;
+    .toLowerCase();
+  const suffix = profile.aliasSuffix;
+  const trimmed = suffix === undefined ? base : base.replace(suffix, '').trim();
+  return profile.aliases?.get(trimmed) ?? trimmed;
 }
 
 function sentenceOf(line: string): string {
@@ -115,41 +97,61 @@ function sentenceOf(line: string): string {
   return trimmed.length <= SENTENCE_MAX ? trimmed : trimmed.slice(0, SENTENCE_MAX);
 }
 
-/** Split a numeric value such as "3.3 V" or "1000Hz" into base units. */
-function numericValue(value: string): { family: string; base: number } | undefined {
+/** Longest spellings first so "ms" never wins over "m" for a given note spelling. */
+function sortUnits(units: readonly ClaimUnit[]): readonly ClaimUnit[] {
+  return [...units].sort((left, right) => right.spelling.length - left.spelling.length);
+}
+
+/**
+ * Split a numeric value such as "3.3 V" or "1000Hz" into base units. A spelling the
+ * profile does not declare still compares, but only against the same spelling: guessing
+ * a conversion the vault never supplied would be worse than reporting nothing.
+ */
+function numericValue(value: string, units: readonly ClaimUnit[]): { family: string; base: number } | undefined {
   const match = /^(-?\d+(?:\.\d+)?)\s*([a-zA-ZωΩ℃%°µ]+)?$/.exec(value.trim());
   if (match === null) return undefined;
   const number = Number(match[1]);
   if (!Number.isFinite(number)) return undefined;
   const unit = (match[2] ?? '').toLowerCase().replace(/µ/g, 'u');
   if (unit === '') return { family: '', base: number };
-  for (const [spelling, info] of UNITS) {
-    if (unit === spelling) return { family: info.family, base: number * info.factor };
+  for (const entry of units) {
+    if (unit === entry.spelling.toLowerCase()) {
+      return { family: entry.family, base: number * entry.factor };
+    }
   }
-  return undefined;
+  return { family: 'spelling:' + unit, base: number };
 }
 
-function unitOf(value: string): string {
-  const match = /^[^\d]*([a-zA-ZωΩ℃%°µ]+)$/.exec(value.trim());
-  return (match?.[1] ?? '').toLowerCase().replace(/µ/g, 'u');
+function stopKeySet(profile: ClaimProfile): ReadonlySet<string> {
+  if (profile.stopKeys === undefined || profile.stopKeys.length === 0) return DOCUMENT_KEYS;
+  const merged = new Set(DOCUMENT_KEYS);
+  for (const key of profile.stopKeys) merged.add(key.toLowerCase());
+  return merged;
 }
 
-function pushClaim(out: Claim[], rawKey: string, rawValue: string, sentence: string): void {
-  const key = normalizeKey(rawKey);
+function pushClaim(
+  out: Claim[],
+  rawKey: string,
+  rawValue: string,
+  sentence: string,
+  profile: ClaimProfile,
+  stopKeys: ReadonlySet<string>,
+): void {
+  const key = normalizeKey(rawKey, profile);
   const value = rawValue.replace(STRIP_MARKUP, '').trim().replace(/\s+/g, ' ');
   if (key.length < 2 || key.length > KEY_MAX) return;
   if (!KEY_SHAPE.test(key)) return;
   if (/^\d{4}-\d{1,2}-\d{1,2}/.test(key)) return;
-  if (STOP_KEYS.has(key)) return;
+  if (stopKeys.has(key)) return;
   if (value === '' || value.length > 40) return;
-  // "引脚 | 说明" style rows name their columns rather than assert a value.
-  if (STOP_KEYS.has(value.trim().toLowerCase())) return;
+  // A row like "attribute | description" names its columns rather than asserting a value.
+  if (stopKeys.has(value.trim().toLowerCase())) return;
   if (!/[0-9]/.test(value) && value.length > 24) return;
   out.push({ key, rawKey: rawKey.trim(), value, sentence: sentenceOf(sentence) });
 }
 
 /** key: value / key = value / key：value (single line, short value). */
-function extractAssignments(line: string, out: Claim[]): void {
+function extractAssignments(line: string, out: Claim[], profile: ClaimProfile, stopKeys: ReadonlySet<string>): void {
   const match = /^([^:：=]{2,24}?)\s*[:：=]\s*(\S.{0,38})$/.exec(line.trim());
   if (match === null) return;
   const value = (match[2] ?? '').trim().replace(/[，。；;,]$/, '');
@@ -157,32 +159,33 @@ function extractAssignments(line: string, out: Claim[]): void {
   const interesting = /[0-9]/.test(value) || /^(\d+(?:\.\d+)?\s*[a-zA-ZωΩ℃%°µ]+)$/.test(value) ||
     /^(是|否|支持|不支持|能|不能|可以|不要|禁止|必须)/.test(value);
   if (!interesting) return;
-  pushClaim(out, match[1] ?? '', value, line);
+  pushClaim(out, match[1] ?? '', value, line, profile, stopKeys);
 }
 
 /** Markdown table row: | 参数 | 值 | */
-function extractTableRow(line: string, out: Claim[]): void {
+function extractTableRow(line: string, out: Claim[], profile: ClaimProfile, stopKeys: ReadonlySet<string>): void {
   if (!line.trim().startsWith('|')) return;
   const cells = line.split('|').slice(1, -1).map((cell) => cell.trim());
   if (cells.length < 2 || cells.length > 4) return;
   if (cells.every((cell) => /^:?-{2,}:?$/.test(cell.replace(/\s/g, '')))) return;
   const [key, value] = cells;
   if ((value ?? '') === '' || (value ?? '').length > 40) return;
-  pushClaim(out, key ?? '', value ?? '', cells.join(' | '));
+  pushClaim(out, key ?? '', value ?? '', cells.join(' | '), profile, stopKeys);
 }
 
-/** 参数 X 为/取/设为 3.3 V */
-function extractCopula(line: string, out: Claim[]): void {
+/** Attribute X 为/取/设为 3.3 V */
+function extractCopula(line: string, out: Claim[], profile: ClaimProfile, stopKeys: ReadonlySet<string>): void {
   const pattern = /([\u4e00-\u9fa5A-Za-z0-9_+#.\-]{1,18})\s*(?:为|是|取|等于|设为|设置为)\s*(-?\d+(?:\.\d+)?\s*(?:[a-zA-ZωΩ℃%°µ]+)?)/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(line)) !== null) {
-    pushClaim(out, match[1] ?? '', match[2] ?? '', line);
+    pushClaim(out, match[1] ?? '', match[2] ?? '', line, profile, stopKeys);
   }
 }
 
 /** Read every claim a note body asserts. */
-export function extractClaims(body: string): Claim[] {
+export function extractClaims(body: string, profile: ClaimProfile = DEFAULT_CLAIM_PROFILE): Claim[] {
   const out: Claim[] = [];
+  const stopKeys = stopKeySet(profile);
   const lines = body.split(/\r?\n/);
   // A table's header row names the columns; its values live in the rows below the separator.
   const isSeparator = (text: string): boolean => {
@@ -201,9 +204,9 @@ export function extractClaims(body: string): Claim[] {
     const line = rawLine.trim();
     if (line === '' || line.startsWith('!') || line.startsWith('>')) continue;
     if (isSeparator(line) || isSeparator(lines[index + 1] ?? '')) continue;
-    extractTableRow(line, out);
-    extractAssignments(line, out);
-    extractCopula(line, out);
+    extractTableRow(line, out, profile, stopKeys);
+    extractAssignments(line, out, profile, stopKeys);
+    extractCopula(line, out, profile, stopKeys);
   }
   return out;
 }
@@ -212,10 +215,11 @@ export function extractClaims(body: string): Claim[] {
  * Explain why two claims about the same attribute cannot both hold, or return
  * undefined when they are compatible (equal, convertible, or one refines the other).
  */
-export function claimConflict(left: Claim, right: Claim): string | undefined {
+export function claimConflict(left: Claim, right: Claim, profile: ClaimProfile = DEFAULT_CLAIM_PROFILE): string | undefined {
   if (left.key !== right.key) return undefined;
-  const numA = numericValue(left.value);
-  const numB = numericValue(right.value);
+  const units = profile.units === undefined ? [] : sortUnits(profile.units);
+  const numA = numericValue(left.value, units);
+  const numB = numericValue(right.value, units);
   if (numA !== undefined && numB !== undefined) {
     if (numA.family !== numB.family) return undefined;
     const scale = Math.max(1, Math.abs(numA.base), Math.abs(numB.base));

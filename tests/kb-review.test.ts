@@ -261,7 +261,7 @@ test('a claims scan marks machine hits 待复核 and clears an undecided similar
     assert.equal(cleared.rows.length, 0);
     assert.equal(cleared.deleted, true);
 
-    const queue = await reviewNote(fs, '学习/笔记/共模.md', { write: true, claimMode: 'claims' });
+    const queue = await reviewNote(fs, '学习/笔记/共模.md', { write: true, claimMode: 'claims', claimProfile: { aliases: new Map([['共模电压增益', '共模增益']]) } });
     assert.equal(queue.rows.length, 1);
     assert.equal(queue.rows[0]?.verdict, '待复核');
     assert.equal(queue.rows[0]?.oldName, '共模另一处');

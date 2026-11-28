@@ -2,7 +2,7 @@ import { isGeneratedNote, isSpecialNote } from '../domain/kb-schema.js';
 import { parseDraft, scalarOf, serializeDraft } from '../domain/frontmatter.js';
 import { tokenize } from '../domain/text.js';
 import { claimConflict, extractClaims } from './kb-claims.js';
-import type { Claim } from './kb-claims.js';
+import type { Claim, ClaimProfile } from './kb-claims.js';
 import { buildNoteCorpus, rankSimilar } from './kb-suggest-links.js';
 import type { NoteCorpus, NoteVector } from './kb-suggest-links.js';
 
@@ -95,6 +95,8 @@ export interface ReviewOptions {
   /** 'claims' pairs notes that assert different values for the same attribute; 'similar' keeps the old embedding ranking. */
   readonly claimMode?: 'claims' | 'similar';
   readonly claimIndex?: ReadonlyMap<string, readonly ClaimEntry[]>;
+  /** Subject knowledge the vault injects (attribute aliases, units); empty by default. */
+  readonly claimProfile?: ClaimProfile;
 }
 
 /** One extracted claim plus the note it came from. */
@@ -121,6 +123,8 @@ export interface ReviewRunOptions {
   readonly limit?: number;
   /** Defaults to 'claims' for scans: pair notes by conflicting claim values, not by embedding similarity. */
   readonly claimMode?: 'claims' | 'similar';
+  /** Subject knowledge the vault injects (attribute aliases, units); empty by default. */
+  readonly claimProfile?: ClaimProfile;
   readonly now?: Date;
 }
 
@@ -359,7 +363,7 @@ export function countPendingReviewRows(text: string): number {
 }
 
 /** Read every note once and index its claims by attribute, so scans compare like with like. */
-async function buildClaimIndex(fs: ReviewFs, docs: readonly NoteVector[]): Promise<Map<string, ClaimEntry[]>> {
+async function buildClaimIndex(fs: ReviewFs, docs: readonly NoteVector[], profile?: ClaimProfile): Promise<Map<string, ClaimEntry[]>> {
   const index = new Map<string, ClaimEntry[]>();
   for (const doc of docs) {
     let text: string;
@@ -368,7 +372,7 @@ async function buildClaimIndex(fs: ReviewFs, docs: readonly NoteVector[]): Promi
     } catch {
       continue;
     }
-    for (const claim of extractClaims(parseDraft(text).body)) {
+    for (const claim of extractClaims(parseDraft(text).body, profile)) {
       const entry: ClaimEntry = { ...claim, notePath: doc.path, noteName: doc.name };
       const bucket = index.get(claim.key);
       if (bucket === undefined) index.set(claim.key, [entry]);
@@ -459,8 +463,8 @@ export async function reviewNote(fs: ReviewFs, notePath: string, options: Review
   let added = 0;
   if ((options.claimMode ?? 'similar') === 'claims') {
     // Only the same attribute carrying two different values can be a contradiction.
-    const index = options.claimIndex ?? (await buildClaimIndex(fs, corpus.docs));
-    const mine = extractClaims(parseDraft(noteText).body);
+    const index = options.claimIndex ?? (await buildClaimIndex(fs, corpus.docs, options.claimProfile));
+    const mine = extractClaims(parseDraft(noteText).body, options.claimProfile);
     const perNote = new Map<string, { name: string; pairs: number }>();
     let full = false;
     for (const claim of mine) {
@@ -570,7 +574,7 @@ export async function reviewNotes(fs: ReviewFs, vaultRoot: string, options: Revi
   const corpus = await buildNoteCorpus(fs);
   // Similarity stays the default so callers that predate claim pairing keep their behaviour; the KB UI asks for claims.
   const claimMode = options.claimMode === 'claims' ? 'claims' : 'similar';
-  const claimIndex = claimMode === 'claims' ? await buildClaimIndex(fs, corpus.docs) : undefined;
+  const claimIndex = claimMode === 'claims' ? await buildClaimIndex(fs, corpus.docs, options.claimProfile) : undefined;
   const modified = new Map<string, number>();
   for (const entry of await fs.listFiles()) modified.set(entry.relPath, entry.modifiedMs ?? 0);
 
@@ -589,7 +593,7 @@ export async function reviewNotes(fs: ReviewFs, vaultRoot: string, options: Revi
   const queues: ReviewQueueReport[] = [];
   for (const target of targets) {
     try {
-      queues.push(await reviewNote(fs, target.path, { write: options.write, now: options.now, corpus, claimMode, ...(claimIndex === undefined ? {} : { claimIndex }) }));
+      queues.push(await reviewNote(fs, target.path, { write: options.write, now: options.now, corpus, claimMode, ...(options.claimProfile === undefined ? {} : { claimProfile: options.claimProfile }), ...(claimIndex === undefined ? {} : { claimIndex }) }));
     } catch (error) {
       warnings.push(target.path + ': ' + (error instanceof Error ? error.message : String(error)));
     }
