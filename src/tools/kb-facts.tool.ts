@@ -430,7 +430,8 @@ async function runWrite(
         break;
       }
       const path = typeof item.path === 'string' ? normalizePath(item.path) : '';
-      const locator = textOf(item.locator);
+      // Callers naturally pass a page number; accept both spellings.
+      const locator = typeof item.locator === 'number' ? String(item.locator) : textOf(item.locator);
       const quote = textOf(item.quote);
       // An absent unit means page: the page is the default evidence granularity.
       const unit = item.unit === undefined ? 'page' : evidenceUnit(item.unit);
