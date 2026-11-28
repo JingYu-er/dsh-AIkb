@@ -13,13 +13,17 @@ auditor — never the engineer who reads the textbook for you.
 
 ## Status
 
-MVP read path and the compile loop are implemented and tested (245 unit tests):
+The read path, the compile loop and the global layer (map, facts, memory) are
+implemented and tested (387 unit tests):
 
 | Tool | Purpose |
 | --- | --- |
 | `kb_doctor` | Vault discovery, layout and permission self-check; index health (cache age, chunk files vs catalog, vector coverage). |
 | `kb_inventory` | Hash-index every binary source into `.wiki/books.jsonl`. |
 | `kb_ingest` | Page-anchored chunking + incremental local index; also harvests bilingual term pairs into `.wiki/index/glossary.json`. |
+| `kb_map` | Deterministic L1 map of the vault: documents, sections, pages and the entities they mention, with family aliases so a variant list is still found by its base name. `build` rewrites `.wiki/index/map.json` incrementally; reading never rebuilds. |
+| `kb_facts` | Comparable facts cached per (entity, field), each backed by a verbatim quote re-verified on write. `plan` → `write` → `table`; two entities differing is the point, one entity contradicting itself is a conflict. |
+| `kb_memory` | Per-vault long-term memory of conclusions, gaps, preferences and tensions, with evidence checks, decay, a hot set for injection and a `disputes` view that never adjudicates. |
 | `kb_query` | BM25 retrieval with path / page / section provenance (CJK bigrams, domain glossary, device-name scoping, coverage weighting, chapter weighting, edition-family cap). Exact identifiers (standard numbers, register names, pin names, section numbers) boost the page that literally carries them. Returns optional page windows and section context; hybrid vectors fill the tail slots. |
 | `kb_embed` | Local e5-small vectors over the chunk index, incremental per book. `kb_ingest` runs it for the books it just wrote (`embedOnIngest: false` opts out). |
 | `kb_lint` | Read-only note hygiene: broken wikilinks, duplicate titles, orphan concept pages, missing frontmatter/type. |
@@ -76,6 +80,7 @@ the vault is modified; `.obsidian/` is never touched.
 | dsh-AIkb | Verified DSH |
 | --- | --- |
 | 0.1.2 | 0.2.2-rc.1 |
+| 0.2.0 | 0.2.2-rc.1 |
 
 A row is added only after the plugin was run against that DSH build; newer builds
 may work but stay unverified until then.
