@@ -382,7 +382,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
           : configNow().packDir),
       }),
     );
-    registerTool(ctx, createKbInitTool({ overrides: () => configOverrides }));
+    registerTool(ctx, createKbInitTool({ overrides: () => configOverrides, resolveRoot }));
     registerTool(
       ctx,
       createKbJobsTool({

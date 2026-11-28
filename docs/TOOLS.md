@@ -501,7 +501,7 @@ and nothing written.
 
 Create a knowledge base from nothing, then make it the vault the other tools use.
 
-Input: `{ dir: string, name?: string, template?: "notes" | "books" | "both" | "blank", activate?: boolean }`
+Input: `{ action?: "create" | "bootstrap", dir?: string, name?: string, template?: "notes" | "books" | "both" | "blank", activate?: boolean }`
 
 `dir` must be absolute. It may not exist yet; if it exists it must be empty, so an
 initialised vault is never overwritten. `name` defaults to the directory name and is
@@ -520,6 +520,14 @@ index.md           map-of-content note linking the template folders
 <folders>/         notes + sources, books + sources, or nothing for blank
 ```
 
+`action: "bootstrap"` runs after `kb_ingest`: it rebuilds `.wiki/index/map.json`
+incrementally, harvests the vault profile again from the chunks on disk, and
+writes `taxonomy.json`, `synonyms.json` and `policy.json`. It reports map
+coverage, profile sizes, documents the index lists but could not parse, and
+catalog sources whose chunk file is missing. `dir` optionally names the vault;
+otherwise the active vault is bootstrapped. Ingest is never run from here — a
+fresh vault still goes `kb_init` → `kb_ingest` → `kb_init {action:"bootstrap"}`.
+
 Registration is a config write: the entry is appended with `slugId(name)`, existing
 entries are reused when the directory already matches (so re-running is harmless),
 and the save goes through the same optimistic-lock path as the settings page. If the
@@ -533,6 +541,8 @@ and names the directory that now exists.
 | `kb.init.not-empty` | The directory already holds entries; pick an empty one. |
 | `kb.init.write-failed` | Creating the skeleton failed; the message carries the cause. |
 | `kb.init.register-failed` | The vault exists but the config write was refused. |
+| `kb.bootstrap.no-index` | Bootstrap ran before the vault had a compiled index; run `kb_ingest` first. |
+| `kb.bootstrap.empty-index` | The index exists but lists no sources. |
 
 ## kb_jobs
 
