@@ -37,6 +37,8 @@ const useNotesEmbed = flag('notes-embed');
 const useNotesRerank = flag('notes-rerank');
 const outPath = value('json', '');
 const verbose = flag('verbose');
+/** Widen queries with the vault glossary (mirrors the plugin default-on path). */
+const useGlossary = flag('glossary');
 
 /**
  * The notes layer lists the vault at query time. Bench-side walker: skip dot directories and
@@ -137,6 +139,13 @@ if (mode === 'hybrid') {
   console.log('vectors:', vectors.ids.length, 'chunks,', vectors.dims, 'dims');
 }
 
+let glossary;
+if (useGlossary) {
+  const { parseGlossary, expansionEntries } = await import(distFile('application/glossary-store.js'));
+  glossary = expansionEntries(parseGlossary(readFileSync(join(ROOT, '.wiki/index/glossary.json'), 'utf8')));
+  console.log('glossary pairs:', glossary.length);
+}
+
 const config = { set: setNames, mode, multi: useMulti, rerank: useRerank, expand: useExpand, topK, notesLayer: useNotesLayer, notesLimit, notesWeight, notesHub, notesEmbed: useNotesEmbed, notesRerank: useNotesRerank };
 console.log(JSON.stringify(config));
 
@@ -215,6 +224,7 @@ for (const setName of setNames) {
       };
     }
     if (useExpand !== 'none') options.expand = useExpand;
+    if (glossary !== undefined) options.glossary = glossary;
   if (rerankBlend !== undefined) options.rerankBlend = rerankBlend;
   if (rerankPool !== undefined) options.rerankPool = rerankPool;
   if (hybridWeight !== undefined) options.hybridWeight = hybridWeight;

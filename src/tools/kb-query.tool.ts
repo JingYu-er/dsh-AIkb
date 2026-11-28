@@ -389,7 +389,10 @@ export function createKbQueryTool(deps: KbQueryDeps) {
           .filter((text) => text !== '')
           .slice(0, 5);
         const window = {
-          glossary: deps.glossaryExpansion === true ? loadVaultGlossary(root) : [],
+          // Learned pairs bridge a Chinese question to English books. Measured on 104 questions:
+          // applying them to English queries cost a hit on the small English set, so the default
+          // (deps.glossaryExpansion !== false) only widens queries that contain CJK characters.
+          glossary: deps.glossaryExpansion !== false && /[\u3400-\u9fff]/.test(args.query) ? loadVaultGlossary(root) : [],
           ...(args.expand === undefined ? {} : { expand: args.expand }),
           ...(args.maxContextChars === undefined ? {} : { maxContextChars: args.maxContextChars }),
           ...(rerank === undefined ? {} : { rerank }),

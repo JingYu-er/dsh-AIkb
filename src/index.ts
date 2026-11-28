@@ -86,9 +86,9 @@ export interface KbPluginConfig {
   /** Base URL the reranker files are fetched from on first use. Default: hf-mirror. */
   readonly rerankModelUrl?: string;
   /**
-   * Widen queries with bilingual pairs harvested from this vault's books. Off by default: on the
-   * 26-question evaluation the full list cost five page hits, and frequency-gated pairs were
-   * neutral. Turn it on for a library that mixes Chinese questions with English books.
+   * Widen queries with bilingual pairs harvested from this vault's books. On by default: only
+   * pairs corroborated by two different books pass the gate, which measured neutral on the
+   * 26-question set while recovering 运算放大器 -> operational amplifier. Set false to disable.
    */
   readonly glossaryExpansion?: boolean;
   /** Vault-relative folder kb_promote writes into. Unset disables promotion. */
@@ -350,7 +350,7 @@ export function apply(ctx: PluginContext, config: KbPluginConfig = {}): void {
         resolveRoot,
         workspaceRoot: () => workspaceRoot,
         embedEnabled,
-        glossaryExpansion: config.glossaryExpansion === true,
+        glossaryExpansion: config.glossaryExpansion !== false,
         ...(embedEnabled ? { prepareEmbedding: () => embeddingEnv() } : {}),
         prepareRerank: () => rerankEnv(),
         rerankDefault: rerankEnabled,

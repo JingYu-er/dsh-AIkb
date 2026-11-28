@@ -90,8 +90,8 @@ call, so a new book is searchable by BM25 and vectors without a second call
 (`entries`, `added`). The glossary is a per-vault by-product: bilingual pairs
 harvested from the page text ("静态工作点 (quiescent operating point)") are merged
 into `.wiki/index/glossary.json`, capped at 4,000 entries and ranked by how many
-books use them. Queries do **not** consume it unless `glossaryExpansion` is
-enabled (see kb_query).
+books use them. Chinese queries consume pairs seen at least five times unless
+`glossaryExpansion` is disabled (see kb_query); non-CJK queries are not widened.
 
 On first use it prepares its own environment: probes an explicit `pythonPath`, the
 private venv, then `python`; if none can import PyMuPDF it creates
@@ -167,10 +167,11 @@ so a third copy over-rewards long chapters.
 `pageStart`/`pageEnd` bound that chapter, so a citation is `p.N–M` while `page`
 is only the entry page inside it. `expand: "section"` returns the whole
 contiguous chapter as `context` (broken at `maxContextChars`, 3,000 by default);
-`expand: "page"` returns every chunk of the hit page. Queries do
-not use the harvested glossary unless the plugin config sets
-`glossaryExpansion: true`; on the 26-question set the full harvested list cost
-five page hits, frequency-gated pairs were neutral.
+`expand: "page"` returns every chunk of the hit page. Chinese queries use
+pairs seen at least five times by default (`glossaryExpansion: false` disables
+it); non-CJK queries are not widened. On the 104-question set the full harvested
+list cost page hits, the five-mention gate added one Chinese page-5 hit, and
+widening English queries cost one hit on the small English set.
 
 `rerank: true` (or `rerankEnabled: true` in the plugin config) sends the 40
 best BM25 candidates through a local **bge-reranker-base** cross-encoder, which

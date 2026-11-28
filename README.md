@@ -122,7 +122,7 @@ Configure the machine-specific parts in the profile's `cordis.patch.yml`
     embedEnabled: true                    # hybrid search (default on)
     embedModelDir: D:/path/to/e5-small    # default <workspaceRoot>/.kb/models/multilingual-e5-small
     embedModelUrl: https://hf-mirror.com/Xenova/multilingual-e5-small/resolve/main
-    glossaryExpansion: false              # widen queries with harvested pairs (measured neutral; off)
+    glossaryExpansion: true               # widen Chinese queries with harvested pairs (default on)
     rerankEnabled: false                  # cross-encoder rerank every query (default off)
     rerankModelDir: D:/path/to/bge-reranker-base   # default <workspaceRoot>/.kb/models/bge-reranker-base
     rerankModelUrl: https://hf-mirror.com/Xenova/bge-reranker-base/resolve/main
@@ -325,12 +325,13 @@ Known gaps and measured negative results:
   `p.N–M` and open the page when the exact wording matters; section windows
   (`expand: "section"`) exist for that. Headings are recovered from page text for
   the 73 books without a PDF outline (the three OCR'd textbooks among them).
-- Harvested bilingual pairs (`.wiki/index/glossary.json`) are **not** used to
-  widen queries by default. On this 26-question set, expanding with all 4,000
-  pairs lost five page hits (11/26 → 7/26): datasheet tables teach wrong pairs
-  ("通用定时器 → TIM3"). Frequency-gated pairs were neutral (11/26). Set
-  `glossaryExpansion: true` only for a library that mixes Chinese questions with
-  English books.
+- Harvested bilingual pairs (`.wiki/index/glossary.json`) widen **Chinese**
+  queries by default. Only pairs seen at least five times pass the gate (122 of
+  4,000 here): the whole list cost page hits because datasheet tables teach wrong
+  pairs ("通用定时器 → TIM3"). On the 104-question set the gated pairs added one
+  Chinese page-5 hit; widening English queries cost one hit on the small English
+  set, so non-CJK queries stay unwidened. Set `glossaryExpansion: false` to turn
+  it off.
 - The three scanned books' text comes from local OCR at 200 dpi (1,434 pages,
   636–732 chars/page). Raising the render DPI is **not** the lever: at 300 dpi
   the recogniser reads 放太/性熊 correctly, but the truth pages already

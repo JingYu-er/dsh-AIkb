@@ -93,9 +93,10 @@ export function glossaryEntries(file: GlossaryFile | undefined): GlossaryEntry[]
 
 /**
  * Pairs safe enough to widen a query. Measured on the 26-question set: expanding with the whole
- * harvested list lost five page hits (11/26 → 7/26), because datasheet tables teach the harvest
- * wrong pairs ("通用定时器 (TIM3)"). Pairs seen at least five times were neutral, so frequency
- * plus a phrase test is the gate; query expansion stays opt-in.
+ * harvested list lost five page hits (11/26 → 7/26), because a single book teaches its own table
+ * shorthand ("通用定时器 (TIM3)"). Five mentions plus the phrase test was the only gate that did
+ * not regress the 104-question benchmark; it adds one Chinese page-5 hit and is applied to CJK
+ * queries only, because widening English queries cost a hit on the small English set.
  */
 export const MIN_EXPANSION_HITS = 5;
 
