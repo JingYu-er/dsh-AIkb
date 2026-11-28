@@ -10,6 +10,7 @@ import { ensureNoteVectors } from '../application/notes-vectors.js';
 import type { NoteVectors } from '../application/notes-layer.js';
 import type { QueryReport, VectorStore } from '../application/kb-query.js';
 import { GLOSSARY_PATH, expansionEntries, parseGlossary } from '../application/glossary-store.js';
+import { SYNONYMS_PATH, parseProfile } from '../application/vault-profile.js';
 import type { GlossaryEntry } from '../domain/glossary.js';
 import type { SchemaNode } from './definition.js';
 import { defineTool } from './definition.js';
@@ -51,6 +52,23 @@ function loadVaultGlossary(root: string): GlossaryEntry[] {
   try {
     const text = readFileSync(nodePath.join(root, ...GLOSSARY_PATH.split('/')), 'utf8');
     return expansionEntries(parseGlossary(text));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Term pairs the vault stated itself (harvested glossary plus the learned synonyms sidecar).
+ * Both are "this text says these two spellings mean the same thing", so both widen a query the
+ * same way; a missing sidecar contributes nothing.
+ */
+function loadVaultSynonyms(root: string): GlossaryEntry[] {
+  try {
+    const text = readFileSync(nodePath.join(root, ...SYNONYMS_PATH.split('/')), 'utf8');
+    const profile = parseProfile(text);
+    return profile.synonyms.entries
+      .filter((entry) => entry.stale !== true)
+      .map((entry) => ({ a: entry.a, b: entry.b }));
   } catch {
     return [];
   }
@@ -392,7 +410,9 @@ export function createKbQueryTool(deps: KbQueryDeps) {
           // Learned pairs bridge a Chinese question to English books. Measured on 104 questions:
           // applying them to English queries cost a hit on the small English set, so the default
           // (deps.glossaryExpansion !== false) only widens queries that contain CJK characters.
-          glossary: deps.glossaryExpansion !== false && /[\u3400-\u9fff]/.test(args.query) ? loadVaultGlossary(root) : [],
+          glossary: deps.glossaryExpansion !== false && /[\u3400-\u9fff]/.test(args.query)
+            ? [...loadVaultGlossary(root), ...loadVaultSynonyms(root)]
+            : [],
           ...(args.expand === undefined ? {} : { expand: args.expand }),
           ...(args.maxContextChars === undefined ? {} : { maxContextChars: args.maxContextChars }),
           ...(rerank === undefined ? {} : { rerank }),

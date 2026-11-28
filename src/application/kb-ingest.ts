@@ -3,6 +3,8 @@ import { chunkPages, DEFAULT_CHUNK_OPTIONS } from '../domain/chunking.js';
 import type { HarvestedTerm } from '../domain/glossary-harvest.js';
 import { harvestTermPairs } from '../domain/glossary-harvest.js';
 import { GLOSSARY_PATH, loadGlossary, mergeGlossary, serializeGlossary } from './glossary-store.js';
+import { POLICY_PATH, SYNONYMS_PATH, TAXONOMY_PATH, harvestProfile, mergeProfile, parseProfile, serializeProfile } from './vault-profile.js';
+import type { VaultProfile } from './vault-profile.js';
 import { DomainError } from '../shared/result.js';
 
 export interface IngestEntry {
@@ -135,6 +137,47 @@ export function parseManifest(text: string): IngestEntry[] {
   return entries;
 }
 
+/**
+ * Every chunk the catalog currently indexes, as { sourceId, path, text }. Read from disk rather
+ * than from this run's extraction so a no-op ingest (all books skipped) still rebuilds the
+ * vocabulary from the whole vault instead of learning nothing.
+ */
+async function loadIndexedChunks(fs: IngestFs, catalog: Catalog): Promise<{ sourceId: string; path: string; text: string }[]> {
+  const chunks: { sourceId: string; path: string; text: string }[] = [];
+  for (const [sha, source] of Object.entries(catalog.sources)) {
+    let text: string;
+    try {
+      text = await fs.readText(chunkFileOf(sha));
+    } catch {
+      continue;
+    }
+    for (const line of text.split(/\r?\n/)) {
+      if (line.trim() === '') continue;
+      try {
+        const chunk = JSON.parse(line) as { text?: unknown };
+        if (typeof chunk.text === 'string') chunks.push({ sourceId: sha, path: source.path, text: chunk.text });
+      } catch {
+        // A malformed chunk line is one lost excerpt, not a failed ingest.
+      }
+    }
+  }
+  return chunks;
+}
+
+/** Read the three sidecars back; absent files mean "not learned yet", corrupt ones are ignored. */
+async function loadProfile(fs: IngestFs): Promise<VaultProfile | undefined> {
+  const inputs: { taxonomy?: string; synonyms?: string; policy?: string } = {};
+  if (await fs.exists(TAXONOMY_PATH)) inputs.taxonomy = await fs.readText(TAXONOMY_PATH);
+  if (await fs.exists(SYNONYMS_PATH)) inputs.synonyms = await fs.readText(SYNONYMS_PATH);
+  if (await fs.exists(POLICY_PATH)) inputs.policy = await fs.readText(POLICY_PATH);
+  if (Object.keys(inputs).length === 0) return undefined;
+  try {
+    return parseProfile(inputs);
+  } catch {
+    return undefined;
+  }
+}
+
 export function chunkFileOf(sha256: string): string {
   return INDEX_ROOT + '/chunks/' + sha256 + '.jsonl';
 }
@@ -264,10 +307,29 @@ export async function runIngest(
   await fs.writeText(INDEX_CATALOG_PATH, JSON.stringify(catalog, null, 2) + LINE_FEED);
 
   let glossary: { entries: number; added: number } | undefined;
+  let currentGlossary = await loadGlossary(fs);
   if (harvested.length > 0) {
-    const merged = mergeGlossary(await loadGlossary(fs), harvested, '');
+    const merged = mergeGlossary(currentGlossary, harvested, '');
     await fs.writeText(GLOSSARY_PATH, serializeGlossary(merged.file));
     glossary = { entries: merged.file.entries.length, added: merged.added };
+    currentGlossary = merged.file;
+  }
+
+  // The profile is the vault's own vocabulary, learned rather than shipped: repeated forms by
+  // shape, plus the term pairs the books state. Rebuilding it on ingest costs one pass over the
+  // chunks and leaves a vault that names no subject area still working.
+  const profileChunks = await loadIndexedChunks(fs, catalog);
+  if (profileChunks.length > 0) {
+    const current = await loadProfile(fs);
+    const pairs = (currentGlossary?.entries ?? []).map((entry) => ({ a: entry.a, b: entry.b }));
+    const harvestedProfile = harvestProfile(profileChunks, pairs);
+    const sourceShas: Record<string, string> = {};
+    for (const [sha, source] of Object.entries(catalog.sources)) sourceShas[source.path] = sha;
+    const merged = mergeProfile(current, harvestedProfile, { sourceShas });
+    const files = serializeProfile(merged.profile);
+    await fs.writeText(TAXONOMY_PATH, files.taxonomy);
+    await fs.writeText(SYNONYMS_PATH, files.synonyms);
+    await fs.writeText(POLICY_PATH, files.policy);
   }
 
   const done = books.filter((book) => book.error === undefined);
