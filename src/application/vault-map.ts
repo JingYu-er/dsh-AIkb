@@ -161,6 +161,10 @@ const TITLE_CJK = /[\u3400-\u9fff]+/gu;
 const TITLE_STOP = new Set(['the', 'and', 'of', 'for', 'to', 'in', 'on', 'with', 'a', 'an', 'de', 'la', 'le']);
 
 const MAX_HEADING_LENGTH = 80;
+/** A map is a locator, not a concordance: caps keep the sidecar small enough to load per query. */
+export const MAX_ENTITIES = 4000;
+const MAX_MENTIONS_PER_ENTITY = 24;
+const MAX_FORMS_PER_DOC = 120;
 const PAGE_NUMBER_PREFIX = /^\d{1,4}\s+/u;
 const CHAPTER_WORD = /^第\s*(?:\d{1,3}|[一二三四五六七八九十百零〇两]{1,4})\s*[章节篇部]/u;
 const ENGLISH_CHAPTER = /^(?:chapter|part|appendix|section)\s+[0-9]{1,3}(?:\.\d{1,3})*\b/iu;
@@ -272,7 +276,7 @@ export function serializeMap(map: MapFile): string {
       unparsed: map.coverage.unparsed,
     },
   };
-  return JSON.stringify(payload, null, 2) + String.fromCharCode(10);
+  return JSON.stringify(payload) + String.fromCharCode(10);
 }
 
 /** Human-readable summary for the settings panel; lists the gaps worth acting on. */
@@ -597,7 +601,18 @@ function formsOf(index: DocFormIndex, pairs: Map<string, Set<string>>): MapDocFo
     }
   }
   out.sort((left, right) => compareText(left.form, right.form));
-  return out;
+  if (out.length <= MAX_FORMS_PER_DOC) return out;
+  const keep = new Set(
+    [...out]
+      .sort((left, right) => formTotal(right) - formTotal(left) || compareText(left.form, right.form))
+      .slice(0, MAX_FORMS_PER_DOC)
+      .map((form) => form.form),
+  );
+  return out.filter((form) => keep.has(form.form));
+}
+
+function formTotal(form: MapDocForm): number {
+  return form.pages.reduce((sum, page) => sum + page.count, 0);
 }
 
 function looksLikeContentsPage(lines: readonly string[]): boolean {
@@ -846,14 +861,48 @@ function buildEntities(docs: readonly MapDoc[]): MapEntity[] {
     }
     const id = slugOf(label);
     if (id === '') continue;
+    // One document is a coincidence, not an entity; and a fragment like "TI", "00B0" or "SE" is
+    // page furniture. Both gates are shape-only so a vault of any subject keeps its own terms.
+    if (noisyLabel(label)) continue;
+    if (total(entityDraft(label, mentions)) < 2) continue;
     aliases.delete(label);
-    const sortedMentions = [...mentions.values()].sort(
-      (left, right) => compareText(left.path, right.path) || left.locator - right.locator,
-    );
+    const sortedMentions = [...mentions.values()]
+      .sort((left, right) => right.count - left.count || compareText(left.path, right.path) || left.locator - right.locator)
+      .slice(0, MAX_MENTIONS_PER_ENTITY)
+      .sort((left, right) => compareText(left.path, right.path) || left.locator - right.locator);
     entities.push({ id, label, aliases: [...aliases].sort(compareText), mentions: sortedMentions });
   }
-  entities.sort((left, right) => compareText(left.id, right.id) || compareText(left.label, right.label));
-  return entities;
+  const ranked = [...entities].sort(
+    (left, right) => spread(right) - spread(left) || total(right) - total(left) || compareText(left.id, right.id),
+  );
+  const kept = ranked.slice(0, MAX_ENTITIES);
+  kept.sort((left, right) => compareText(left.id, right.id) || compareText(left.label, right.label));
+  return kept;
+}
+
+/** Documents an entity appears in; the ranking that decides which entities survive the cap. */
+function spread(entity: MapEntity): number {
+  return new Set(entity.mentions.map((mention) => mention.path)).size;
+}
+
+function total(entity: MapEntity): number {
+  return entity.mentions.reduce((sum, mention) => sum + mention.count, 0);
+}
+
+function entityDraft(label: string, mentions: ReadonlyMap<string, MapMention>): MapEntity {
+  return { id: slugOf(label), label, aliases: [], mentions: [...mentions.values()] };
+}
+
+/**
+ * Page furniture and register addresses are not entities. The test is structural: too short to be a
+ * term, or a bare hex literal; nothing here knows a subject.
+ */
+function noisyLabel(label: string): boolean {
+  const ascii = !CJK.test(label);
+  if (ascii && label.replace(/[^A-Za-z0-9]+/gu, '').length < 3) return true;
+  if (CJK.test(label)) return false;
+  if (/^[0-9A-Fa-f]{2,8}$/u.test(label)) return true;
+  return /^[A-Z]{1,2}$/u.test(label);
 }
 
 async function readGlossaryPairs(fs: MapFs, indexRoot: string): Promise<GlossaryPair[]> {
