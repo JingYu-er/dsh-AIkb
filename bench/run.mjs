@@ -39,6 +39,8 @@ const outPath = value('json', '');
 const verbose = flag('verbose');
 /** Widen queries with the vault glossary (mirrors the plugin default-on path). */
 const useGlossary = flag('glossary');
+/** Also load the learned synonyms sidecar (the profile's stated pairs). */
+const useSynonyms = flag('synonyms');
 
 /**
  * The notes layer lists the vault at query time. Bench-side walker: skip dot directories and
@@ -144,6 +146,17 @@ if (useGlossary) {
   const { parseGlossary, expansionEntries } = await import(distFile('application/glossary-store.js'));
   glossary = expansionEntries(parseGlossary(readFileSync(join(ROOT, '.wiki/index/glossary.json'), 'utf8')));
   console.log('glossary pairs:', glossary.length);
+}
+if (useSynonyms) {
+  const { parseProfile } = await import(distFile('application/vault-profile.js'));
+  const { isExpandablePair } = await import(distFile('domain/glossary.js'));
+  const profile = parseProfile(readFileSync(join(ROOT, '.wiki/index/synonyms.json'), 'utf8'));
+  const extra = profile.synonyms.entries
+    .filter((entry) => entry.stale !== true)
+    .map((entry) => ({ a: entry.a, b: entry.b }))
+    .filter((entry) => isExpandablePair(entry));
+  glossary = [...(glossary ?? []), ...extra];
+  console.log('synonym pairs:', extra.length);
 }
 
 const config = { set: setNames, mode, multi: useMulti, rerank: useRerank, expand: useExpand, topK, notesLayer: useNotesLayer, notesLimit, notesWeight, notesHub, notesEmbed: useNotesEmbed, notesRerank: useNotesRerank };

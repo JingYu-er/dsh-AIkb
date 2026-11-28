@@ -11,6 +11,7 @@ import type { NoteVectors } from '../application/notes-layer.js';
 import type { QueryReport, VectorStore } from '../application/kb-query.js';
 import { GLOSSARY_PATH, expansionEntries, parseGlossary } from '../application/glossary-store.js';
 import { SYNONYMS_PATH, parseProfile } from '../application/vault-profile.js';
+import { isExpandablePair } from '../domain/glossary.js';
 import type { GlossaryEntry } from '../domain/glossary.js';
 import type { SchemaNode } from './definition.js';
 import { defineTool } from './definition.js';
@@ -68,7 +69,8 @@ function loadVaultSynonyms(root: string): GlossaryEntry[] {
     const profile = parseProfile(text);
     return profile.synonyms.entries
       .filter((entry) => entry.stale !== true)
-      .map((entry) => ({ a: entry.a, b: entry.b }));
+      .map((entry) => ({ a: entry.a, b: entry.b }))
+      .filter((entry) => isExpandablePair(entry));
   } catch {
     return [];
   }
