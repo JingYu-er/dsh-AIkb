@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import * as nodePath from 'node:path';
-import { loadConfig, resolveVaultPath } from '../src/application/config-store.js';
+import { configFilePath, loadConfig, resolveVaultPath } from '../src/application/config-store.js';
 import type { KbConfig } from '../src/application/config-store.js';
 import { SETTINGS_ROUTE_PREFIX, handleSettingsApi } from '../src/application/settings-api.js';
 import type { SettingsApiDeps, SettingsApiResult } from '../src/application/settings-api.js';
@@ -28,6 +28,8 @@ const previousConfigEnv = process.env.KB_CONFIG;
 before(() => {
   process.env.KB_CONFIG = configPath;
   delete process.env.KB_VAULT;
+  // A leaked env would let these tests write the developer's real ~/.dsh-aikb/config.json.
+  assert.equal(configFilePath(), configPath, 'settings tests must never touch the real config file');
 });
 
 let writes = false;

@@ -239,14 +239,17 @@ export function validateConfig(config: KbConfig): ConfigProblem[] {
   return problems;
 }
 
-/** What the first-run gate keys on: without these three answers nothing can be initialised. */
+/**
+ * What the first-run gate keys on: a usable vault and a pack directory. An empty
+ * toolchainDir is not missing — it means the default root under the home directory,
+ * so flagging it would contradict the field's own placeholder.
+ */
 export function readiness(config: KbConfig): string[] {
   const missing: string[] = [];
   const active = config.vaults.find((v) => v.id === config.activeVault);
   if (active === undefined) missing.push('vaults');
   else if (!existsSync(active.dir)) missing.push('vaults.dir');
   if (config.packDir === '') missing.push('packDir');
-  if (config.toolchainDir === '') missing.push('toolchainDir');
   return missing;
 }
 

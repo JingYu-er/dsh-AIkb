@@ -79,7 +79,7 @@ DSH 设置页、KB 面板与 agent 工具读的是同一份文档，改一处不
 
 ## 就绪门
 
-`/api/config` 与 `kb_doctor` 会报 `missing`：`vaults`（没配库或目录不存在）、`packDir`、`toolchainDir`。
+`/api/config` 与 `kb_doctor` 会报 `missing`：`vaults`（没配库或目录不存在）与 `packDir`。`toolchainDir` 留空不算缺——它表示用默认根 `~/.dsh-aikb/toolchain`。
 工具调用只被前两个里的库问题拦住（`kb.not-ready`，错误里给配置文件路径与修法）；
 `packDir` / `toolchainDir` 只影响对应功能，不会让只读检索失败。
 

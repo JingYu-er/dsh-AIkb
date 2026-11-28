@@ -80,7 +80,7 @@ test('an empty install loads defaults and reports the three first-run answers as
       assert.equal(loaded.config.embedOnIngest, true);
       assert.equal(loaded.config.rerankEnabled, false);
       assert.equal(loaded.config.allowWrites, false);
-      assert.deepEqual(loaded.missing, ['vaults', 'packDir', 'toolchainDir']);
+      assert.deepEqual(loaded.missing, ['vaults', 'packDir']);
       assert.equal(loaded.configComplete, false);
       assert.deepEqual(loaded.warnings, []);
       assert.deepEqual(loaded.sources, []);
@@ -104,7 +104,7 @@ test('a version 1 vaultPath migrates to the "default" vault and satisfies the va
       assert.equal(loaded.config.vaults[0]!.dir, nodePath.resolve(vault));
       assert.equal(loaded.config.activeVault, 'default');
       assert.ok(loaded.warnings.includes('kb.config.migrated: treated vaultPath as vault "default"'));
-      assert.deepEqual(loaded.missing, ['packDir', 'toolchainDir']);
+      assert.deepEqual(loaded.missing, ['packDir']);
       assert.equal(loaded.configComplete, false);
     });
     // KB_VAULT is the other legacy entry point and is honoured when no file exists.
