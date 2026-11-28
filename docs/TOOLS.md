@@ -286,15 +286,17 @@ transcript. Entries keep evidence when they make a factual claim, and decay by
 kind instead of all at once — open questions fade in about 90 days, preferences
 in about 180, tensions in about 120, verified facts only follow their evidence.
 
-Input: `{ action: "add" | "list" | "hot" | "touch" | "forget" | "consolidate", kind?, subject?, statement?, attribution?, scope?, status?, confidence?, importance?, evidence?, query?, limit?, budgetTokens?, ids?, force?, reason?, apply?, vaultPath?: string }`
+Input: `{ action: "add" | "list" | "hot" | "disputes" | "touch" | "forget" | "consolidate", kind?, subject?, statement?, attribution?, scope?, status?, confidence?, importance?, evidence?, query?, limit?, budgetTokens?, ids?, force?, reason?, apply?, vaultPath?: string }`
 
 `add` rejects a claim whose quote cannot be resolved, stores preferences
 without evidence, and merges duplicates by subject and statement. `hot` returns
 the small set worth injecting at the start of a conversation (400 tokens by
-default). `touch` records reuse and slows decay. `forget` refuses to drop a
+default) and withholds disputed claims. `disputes` lists every tension and every
+claim two sources contradict, for the answer that has to say "the library
+supports both" instead of picking one. `touch` records reuse and slows decay. `forget` refuses to drop a
 preference or an open question unless `force` is set, and always leaves an
-audit line. `consolidate` reports merges, promotions, stale entries and disputed
-values; without `apply` it only plans, and it never deletes anything.
+audit line. `consolidate` reports merges, promotions, stale entries and numerically
+contradicting claims (both sides are marked disputed, never resolved); without `apply` it only plans, and it never deletes anything.
 Everything lives in `.wiki/memory/items.jsonl` with a human-readable
 `.wiki/memory/consolidation.log`.
 

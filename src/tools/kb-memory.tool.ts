@@ -42,7 +42,7 @@ const DEFAULT_BUDGET = 400;
 const MAX_BUDGET = 4000;
 const RECENT_LOG_DAYS = 7;
 
-export type KbMemoryAction = 'add' | 'list' | 'hot' | 'touch' | 'forget' | 'consolidate';
+export type KbMemoryAction = 'add' | 'list' | 'hot' | 'disputes' | 'touch' | 'forget' | 'consolidate';
 
 export interface MemoryEvidenceInput {
   readonly path?: string;
@@ -441,11 +441,11 @@ export function createKbMemoryTool(deps: KbMemoryDeps) {
   return defineTool<KbMemoryArgs, KbMemoryReport>({
     name: 'kb_memory',
     description:
-      'Per-vault long-term memory: conclusions (kind "claim"), open gaps ("unknown"), user preferences ("preference") and unresolved tensions ("tension"). action:"add" stores one item and verifies every quote against the current source text (page/section/chunk of an indexed document, or a markdown note section); "list" reads items, "hot" returns the faded top items that fit a token budget, "touch" records reuse, "forget" removes one item (preferences and gaps need force), "consolidate" plans or applies dedupe/promote/stale/dispute without ever deleting a statement. Items decay by importance, age and use; the ledger lives in .wiki/memory/items.jsonl and is written regardless of the writes switch, like the index.',
+      'Per-vault long-term memory: conclusions (kind "claim"), open gaps ("unknown"), user preferences ("preference") and unresolved tensions ("tension"). action:"add" stores one item and verifies every quote against the current source text (page/section/chunk of an indexed document, or a markdown note section); "list" reads items, "hot" returns the faded top items, "disputes" lists every unresolved tension and every claim two sources contradict that fit a token budget, "touch" records reuse, "forget" removes one item (preferences and gaps need force), "consolidate" plans or applies dedupe/promote/stale/dispute without ever deleting a statement. Items decay by importance, age and use; the ledger lives in .wiki/memory/items.jsonl and is written regardless of the writes switch, like the index.',
     parameters: {
       action: {
         type: 'string',
-        enum: ['add', 'list', 'hot', 'touch', 'forget', 'consolidate'],
+        enum: ['add', 'list', 'hot', 'disputes', 'touch', 'forget', 'consolidate'],
         description: 'Default list.',
       },
       id: { type: 'string', description: 'add: optional explicit id. touch/forget: target item id (forget also accepts a subject).' },
@@ -455,7 +455,7 @@ export function createKbMemoryTool(deps: KbMemoryDeps) {
       statement: { type: 'string', description: 'add: the conclusion or gap itself, one sentence.' },
       attribution: { type: 'string', description: 'add: who asserts it (authority, standard, commenter, or the plugin itself).' },
       scope: { type: 'json', description: 'add: scope keys such as jurisdiction, population, version, test conditions.' },
-      status: { type: 'string', enum: ['verified', 'derived', 'disputed', 'stale'], description: 'add: default verified when evidence verifies, derived otherwise.' },
+      status: { type: 'string', enum: ['verified', 'derived', 'disputed', 'stale'], description: 'add: default verified when evidence verifies, derived otherwise. list: filter.' },
       confidence: { type: 'number', description: 'add: 0..1, default 0.6.' },
       importance: { type: 'number', description: 'add: 0..5, default 1.' },
       evidence: {
@@ -566,12 +566,14 @@ export function createKbMemoryTool(deps: KbMemoryDeps) {
         if (action === 'list') {
           const wanted = textOf(args.query).toLowerCase();
           const kind = kindOf(args.kind);
+          const status = statusOf(args.status);
           const filtered = items.filter((item) => {
             if (wanted !== '') {
               const haystack = (item.subject + ' ' + item.statement).toLowerCase();
               if (!haystack.includes(wanted)) return false;
             }
-            return kind === undefined || item.kind === kind;
+            if (kind !== undefined && item.kind !== kind) return false;
+            return status === undefined || item.status === status;
           });
           return {
             ok: true,
@@ -580,6 +582,21 @@ export function createKbMemoryTool(deps: KbMemoryDeps) {
             ...summaryOf(items),
             items: [...filtered].sort(compareRows).slice(0, limitOf(args.limit)).map(rowOf),
             note: filtered.length > limitOf(args.limit) ? '只显示前 ' + limitOf(args.limit) + ' 条，共 ' + filtered.length + ' 条' : undefined,
+          };
+        }
+
+        if (action === 'disputes') {
+          const contested = items.filter((item) => item.status === 'disputed' || item.kind === 'tension');
+          return {
+            ok: true,
+            action,
+            vaultRoot: root,
+            ...summaryOf(items),
+            items: contested.sort(compareRows).slice(0, limitOf(args.limit)).map(rowOf),
+            note:
+              contested.length === 0
+                ? '没有未决争议：结论之间没有出现互相矛盾或多种解读'
+                : '有 ' + contested.length + ' 条未决争议：两个说法都要列出出处，不要替用户裁决；数值矛盾可用 kb_facts 核对',
           };
         }
 

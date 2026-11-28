@@ -255,10 +255,12 @@ describe('selectHot', () => {
     const top = makeItem({ id: 'b-top', importance: 4, statement: long, subject: '' });
     const mid = makeItem({ id: 'c-mid', importance: 3, statement: long, subject: '' });
     const low = makeItem({ id: 'd-low', importance: 2, statement: long, subject: '' });
-    const picked = selectHot([stale, top, mid, low], { budgetTokens: 20, now: NOW });
+    const disputed = makeItem({ id: 'e-disputed', status: 'disputed', importance: 5, statement: long, subject: '' });
+    const picked = selectHot([stale, disputed, top, mid, low], { budgetTokens: 20, now: NOW });
     assert.deepEqual(picked.hot.map((item) => item.id), ['b-top', 'c-mid']);
     assert.equal(picked.tokens, 18);
     assert.ok(picked.hot.every((item) => item.status !== 'stale'));
+    assert.ok(picked.hot.every((item) => item.status !== 'disputed'), 'a contested claim must not be injected as background');
   });
 });
 

@@ -531,7 +531,11 @@ function estimateTokens(item: MemoryItem): number {
   return Math.ceil(chars / 4);
 }
 
-/** Select the highest-scoring non-stale items that fit the token budget. */
+/**
+ * Select the highest-scoring items that fit the token budget. Stale items are
+ * out of date and disputed items have no single truth: injecting either would
+ * make the agent assert something the vault does not support.
+ */
 export function selectHot(
   items: readonly MemoryItem[],
   options: SelectHotOptions,
@@ -539,7 +543,7 @@ export function selectHot(
   const budget = options.budgetTokens ?? 400;
   const minScore = options.minScore ?? 0;
   const scored = items
-    .filter((item) => item.status !== 'stale')
+    .filter((item) => item.status !== 'stale' && item.status !== 'disputed')
     .map((item) => ({ item, score: decayScore(item, options.now) }))
     .filter((entry) => entry.score >= minScore);
   scored.sort((a, b) => {

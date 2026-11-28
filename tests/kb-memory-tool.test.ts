@@ -285,3 +285,35 @@ test('consolidate marks stale evidence and merges duplicates without deleting st
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('disputes lists tensions and contradicted claims, and hot skips them', async () => {
+  const root = await makeVault();
+  try {
+    const base = { evidence: [] as MemoryItem['evidence'], confidence: 0.6, importance: 3, createdAt: STAMP, lastUsedAt: STAMP, useCount: 0 };
+    const ledger: MemoryItem[] = [
+      { ...base, id: 'm-disputed', kind: 'claim', subject: '库存', statement: '库存为 120 件', status: 'disputed' },
+      { ...base, id: 'm-ok', kind: 'claim', subject: '电压', statement: '输出为 5 V', status: 'verified' },
+      { ...base, id: 'm-tension', kind: 'tension', subject: '解释', statement: '同一段可读作两种含义', status: 'verified' },
+    ];
+    await writeFile(nodePath.join(root, ITEMS_PATH), serializeItems(ledger), 'utf8');
+    const tool = toolFor(root);
+
+    const filtered = await tool.execute({ action: 'list', status: 'disputed' }, {});
+    assert.equal(filtered.items?.length, 1);
+    assert.equal(filtered.items?.[0]?.id, 'm-disputed');
+
+    const contested = await tool.execute({ action: 'disputes' }, {});
+    assert.equal(contested.ok, true);
+    assert.deepEqual(contested.items?.map((row) => row.id).sort(), ['m-disputed', 'm-tension']);
+    assert.match(contested.note ?? '', /未决争议/u);
+    const rendered = tool.output.render({ action: 'disputes' }, contested)[0]?.text ?? '';
+    assert.match(rendered, /\[tension\]/u);
+
+    const hot = await tool.execute({ action: 'hot' }, {});
+    // A disputed claim is withheld; a tension is a note about ambiguity, so it stays.
+    assert.deepEqual(hot.hot?.map((row) => row.id), ['m-ok', 'm-tension']);
+    assert.ok(hot.hot?.every((row) => row.id !== 'm-disputed'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
