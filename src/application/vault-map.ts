@@ -849,7 +849,11 @@ function buildEntities(docs: readonly MapDoc[]): MapEntity[] {
       }
       counts.set(candidate.form, (counts.get(candidate.form) ?? 0) + total);
       aliases.add(candidate.form);
-      for (const partner of candidate.pairs ?? []) aliases.add(partner);
+      for (const alias of familyAliases(candidate.form)) aliases.add(alias);
+      for (const partner of candidate.pairs ?? []) {
+        aliases.add(partner);
+        for (const alias of familyAliases(partner)) aliases.add(alias);
+      }
     }
     let label = '';
     let best = -1;
@@ -891,6 +895,34 @@ function total(entity: MapEntity): number {
 
 function entityDraft(label: string, mentions: ReadonlyMap<string, MapMention>): MapEntity {
   return { id: slugOf(label), label, aliases: [], mentions: [...mentions.values()] };
+}
+
+/**
+ * Datasheets name a family either as a slash list ("AB-12-1/AB-12-2") or per variant ("AB-12-1").
+ * A reader asks for the family, so the shared stem becomes an alias. Shape-only: digits required.
+ */
+function familyAliases(form: string): string[] {
+  const out: string[] = [];
+  const parts = form.split('/').map((part) => part.trim()).filter((part) => part !== '');
+  if (parts.length > 1) {
+    for (const part of parts) if (part !== form) out.push(part);
+    let prefix = parts[0] ?? '';
+    for (const part of parts.slice(1)) {
+      let index = 0;
+      const limit = Math.min(prefix.length, part.length);
+      while (index < limit && prefix.charAt(index).toLowerCase() === part.charAt(index).toLowerCase()) index += 1;
+      prefix = prefix.slice(0, index);
+    }
+    const stem = prefix.replace(/[^\p{L}\p{N}]+$/gu, '');
+    if (stem.length >= 4 && DIGIT.test(stem)) out.push(stem);
+    return out;
+  }
+  const match = /^(.+)-([A-Za-z0-9]{1,3})$/u.exec(form);
+  if (match !== null) {
+    const stem = match[1] ?? '';
+    if (stem.length >= 4 && DIGIT.test(stem)) out.push(stem);
+  }
+  return out;
 }
 
 /**
